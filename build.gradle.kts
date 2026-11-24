@@ -1,6 +1,7 @@
 
 plugins {
-    id("net.fabricmc.fabric-loom-remap") version "1.11.8"}
+    id("fabric-loom") version "1.11.8"
+}
 
 val archivesBaseName = providers.gradleProperty("archives_base_name").get()
 val mavenGroup = providers.gradleProperty("maven_group").get()
