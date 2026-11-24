@@ -1,5 +1,6 @@
+
 plugins {
-    alias(libs.plugins.fabric.loom)
+    id("net.fabricmc.fabric-loom-remap") version "1.11.8"
 }
 
 val archivesBaseName = providers.gradleProperty("archives_base_name").get()
@@ -16,24 +17,28 @@ repositories {
         name = "meteor-maven"
         url = uri("https://maven.meteordev.org/releases")
     }
+
     maven {
         name = "meteor-maven-snapshots"
         url = uri("https://maven.meteordev.org/snapshots")
     }
+
+    maven("https://maven.fabricmc.net/")
+    mavenCentral()
 }
 
 dependencies {
-    // Fabric
     minecraft(libs.minecraft)
-    implementation(libs.fabric.loader)
 
-    // Meteor
-    implementation(libs.meteor.client)
+    modImplementation(libs.fabric.loader)
+    modImplementation(libs.meteor.client)
 }
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(libs.versions.jdk.get().toInt()))
+        languageVersion.set(
+            JavaLanguageVersion.of(libs.versions.jdk.get().toInt())
+        )
     }
 }
 
@@ -46,11 +51,13 @@ fun toMinecraftCompat(version: String): String {
     }
 
     val pre = Regex("""^(\d{2})\.([1-9]\d*)-pre[-.](\d+)$""")
+
     pre.matchEntire(version)?.let {
         return version.replace("-pre-", "-pre.")
     }
 
     val rc = Regex("""^(\d{2})\.([1-9]\d*)-rc[-.](\d+)$""")
+
     rc.matchEntire(version)?.let {
         return version.replace("-rc-", "-rc.")
     }
@@ -62,11 +69,14 @@ tasks {
     processResources {
         val propertyMap = mapOf(
             "version" to project.version,
-            "minecraft_version" to toMinecraftCompat(libs.versions.minecraft.get()),
-            "jdk_version" to libs.versions.jdk.get(),
+            "minecraft_version" to toMinecraftCompat(
+                libs.versions.minecraft.get()
+            ),
+            "jdk_version" to libs.versions.jdk.get()
         )
 
         inputs.properties(propertyMap)
+
         filesMatching("fabric.mod.json") {
             expand(propertyMap)
         }
@@ -74,6 +84,7 @@ tasks {
 
     jar {
         inputs.property("archivesName", archivesBaseName)
+
         val licenseName = "LICENSE_$archivesBaseName"
 
         from("LICENSE") {
