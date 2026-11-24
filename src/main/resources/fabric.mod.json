@@ -1,24 +1,21 @@
 {
   "schemaVersion": 1,
-  "id": "addon-template",
+  "id": "vx-addon",
   "version": "${version}",
-  "name": "Addon Template",
-  "description": "An addon template for Meteor Client addons.",
+  "name": "VX Addon",
+  "description": "VX Addon cho Meteor Client (1.21.4 - 1.21.11).",
   "authors": [
-    "seasnail"
+    "VX"
   ],
-  "contact": {
-    "sources": "https://github.com/MeteorDevelopment/meteor-addon-template"
-  },
-  "icon": "assets/template/icon.png",
+  "contact": {},
   "environment": "client",
   "entrypoints": {
     "meteor": [
-      "com.example.addon.AddonTemplate"
+      "com.vxaddon.addon.VxAddon"
     ]
   },
   "mixins": [
-    "addon-template.mixins.json"
+    "vx-addon.mixins.json"
   ],
   "custom": {
     "meteor-client:color": "225,25,25",
@@ -30,7 +27,7 @@
   },
   "depends": {
     "java": ">=${jdk_version}",
-    "minecraft": "${minecraft_version}",
+    "minecraft": ">=1.21.4 <=1.21.11",
     "meteor-client": "*"
   }
 }
