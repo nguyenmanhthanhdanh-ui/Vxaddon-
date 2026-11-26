@@ -3,16 +3,19 @@ plugins {
     id("fabric-loom") version "1.11.8"
 }
 
-val archivesBaseName = providers.gradleProperty("archives_base_name").get()
+val archiveName = providers.gradleProperty("archives_base_name").get()
 val mavenGroup = providers.gradleProperty("maven_group").get()
 
 base {
-    archivesName = archivesBaseName
-    version = libs.versions.mod.version.get()
-    group = mavenGroup
+    archivesName = archiveName
 }
 
+version = libs.versions.mod.version.get()
+group = mavenGroup
+
 repositories {
+    maven("https://maven.fabricmc.net/")
+
     maven {
         name = "meteor-maven"
         url = uri("https://maven.meteordev.org/releases")
@@ -23,14 +26,19 @@ repositories {
         url = uri("https://maven.meteordev.org/snapshots")
     }
 
-    maven("https://maven.fabricmc.net/")
     mavenCentral()
 }
 
 dependencies {
     minecraft(libs.minecraft)
 
+    // Minecraft mappings
+    mappings(loom.officialMojangMappings())
+
+    // Fabric
     modImplementation(libs.fabric.loader)
+
+    // Meteor
     modImplementation(libs.meteor.client)
 }
 
@@ -51,13 +59,11 @@ fun toMinecraftCompat(version: String): String {
     }
 
     val pre = Regex("""^(\d{2})\.([1-9]\d*)-pre[-.](\d+)$""")
-
     pre.matchEntire(version)?.let {
         return version.replace("-pre-", "-pre.")
     }
 
     val rc = Regex("""^(\d{2})\.([1-9]\d*)-rc[-.](\d+)$""")
-
     rc.matchEntire(version)?.let {
         return version.replace("-rc-", "-rc.")
     }
@@ -83,9 +89,9 @@ tasks {
     }
 
     jar {
-        inputs.property("archivesName", archivesBaseName)
+        inputs.property("archivesName", archiveName)
 
-        val licenseName = "LICENSE_$archivesBaseName"
+        val licenseName = "LICENSE_$archiveName"
 
         from("LICENSE") {
             rename("LICENSE", licenseName)
