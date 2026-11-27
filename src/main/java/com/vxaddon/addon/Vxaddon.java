@@ -3,10 +3,8 @@ package com.vxaddon.addon;
 import com.mojang.logging.LogUtils;
 import com.vxaddon.addon.modules.SusChunkFinder;
 import com.vxaddon.addon.modules.KelpESP;
-import com.vxaddon.addon.modules.AutoBuildBot;
 import com.vxaddon.addon.modules.StorageESP;
 import com.vxaddon.addon.modules.BlockEntitiesESP;
-import com.vxaddon.addon.modules.SwingSpeed;
 
 import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.systems.modules.Category;
