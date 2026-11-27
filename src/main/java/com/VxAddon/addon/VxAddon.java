@@ -6,7 +6,7 @@ import com.mojang.logging.LogUtils;
 import com.vxaddon.addon.modules.SusChunkFinder;
 import com.vxaddon.addon.modules.KelpESP;
 import com.vxaddon.addon.modules.StorageESP;
-import com.vxaddon.addon.modules.BlockEntitiesESP;
+import com.vxaddon.addon.modules.VxBlockEntitiesESP;
 import com.vxaddon.addon.modules.PlayerDebug;
 import com.vxaddon.addon.modules.Freecam;
 
