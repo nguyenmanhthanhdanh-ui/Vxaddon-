@@ -8,7 +8,7 @@ import com.vxaddon.addon.modules.KelpESP;
 import com.vxaddon.addon.modules.VxStorageESP;
 import com.vxaddon.addon.modules.BlockEntitiesESP;
 import com.vxaddon.addon.modules.PlayerDebug;
-import com.vxaddon.addon.modules.Freecam;
+import com.vxaddon.addon.modules.VxFreecam;
 
 import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.systems.modules.Category;
@@ -31,7 +31,7 @@ public class VxAddon extends MeteorAddon {
         modules.add(new VxStorageESP());
         modules.add(new BlockEntitiesESP());
         modules.add(new PlayerDebug());
-        modules.add(new Freecam());
+        modules.add(new VxFreecam());
     }
 
     @Override
