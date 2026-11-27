@@ -2,6 +2,7 @@
 package com.vxaddon.addon.modules;
 
 import com.vxaddon.addon.VxAddon;
+
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
@@ -30,6 +31,19 @@ public class VxStorageESP extends Module {
             .defaultValue(16)
             .min(4)
             .max(32)
+            .sliderMin(4)
+            .sliderMax(32)
+            .build()
+    );
+
+    private final Setting<Integer> scanSpeed = sgGeneral.add(
+        new IntSetting.Builder()
+            .name("scan-speed")
+            .defaultValue(4096)
+            .min(512)
+            .max(8192)
+            .sliderMin(512)
+            .sliderMax(8192)
             .build()
     );
 
@@ -61,6 +75,13 @@ public class VxStorageESP extends Module {
             .build()
     );
 
+    private final Setting<Boolean> enderChest = sgStorage.add(
+        new BoolSetting.Builder()
+            .name("ender-chest")
+            .defaultValue(true)
+            .build()
+    );
+
     private final Setting<Boolean> tracers = sgRender.add(
         new BoolSetting.Builder()
             .name("tracers")
@@ -83,6 +104,12 @@ public class VxStorageESP extends Module {
     );
 
     private final List<BlockPos> storageBlocks = new ArrayList<>();
+    private final List<BlockPos> scanResults = new ArrayList<>();
+
+    private BlockPos scanOrigin;
+    private int scanX;
+    private int scanY;
+    private int scanZ;
 
     public VxStorageESP() {
         super(
@@ -95,47 +122,84 @@ public class VxStorageESP extends Module {
     @Override
     public void onActivate() {
         storageBlocks.clear();
+        scanResults.clear();
+        resetScan();
     }
 
     @Override
     public void onDeactivate() {
         storageBlocks.clear();
+        scanResults.clear();
+        scanOrigin = null;
+    }
+
+    private void resetScan() {
+        if (mc.player == null) return;
+
+        scanOrigin = mc.player.blockPosition();
+        scanX = -distance.get();
+        scanY = -distance.get();
+        scanZ = -distance.get();
+        scanResults.clear();
     }
 
     private boolean isStorage(Block block) {
         if (chest.get() && block == Blocks.CHEST) return true;
         if (trappedChest.get() && block == Blocks.TRAPPED_CHEST) return true;
         if (barrel.get() && block == Blocks.BARREL) return true;
+        if (enderChest.get() && block == Blocks.ENDER_CHEST) return true;
 
         return shulker.get() && block instanceof ShulkerBoxBlock;
     }
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (mc.level == null || mc.player == null) {
-            storageBlocks.clear();
+        if (mc.level == null || mc.player == null) return;
+
+        if (scanOrigin == null) {
+            resetScan();
             return;
         }
 
-        storageBlocks.clear();
+        // Restart scan when player moves to another block.
+        if (!mc.player.blockPosition().equals(scanOrigin)) {
+            resetScan();
+        }
 
-        BlockPos playerPos = mc.player.blockPosition();
+        int checked = 0;
+        int limit = scanSpeed.get();
         int radius = distance.get();
 
-        for (int x = -radius; x <= radius; x++) {
-            for (int y = -radius; y <= radius; y++) {
-                for (int z = -radius; z <= radius; z++) {
+        while (checked < limit) {
+            BlockPos pos = scanOrigin.offset(scanX, scanY, scanZ);
 
-                    BlockPos pos = playerPos.offset(x, y, z);
+            if (mc.level.hasChunkAt(pos)) {
+                Block block = mc.level.getBlockState(pos).getBlock();
 
-                    if (!mc.level.hasChunkAt(pos)) continue;
-
-                    Block block = mc.level.getBlockState(pos).getBlock();
-
-                    if (isStorage(block)) {
-                        storageBlocks.add(pos.immutable());
-                    }
+                if (isStorage(block)) {
+                    scanResults.add(pos.immutable());
                 }
+            }
+
+            checked++;
+
+            scanZ++;
+
+            if (scanZ > radius) {
+                scanZ = -radius;
+                scanY++;
+            }
+
+            if (scanY > radius) {
+                scanY = -radius;
+                scanX++;
+            }
+
+            if (scanX > radius) {
+                storageBlocks.clear();
+                storageBlocks.addAll(scanResults);
+                resetScan();
+                break;
             }
         }
     }
