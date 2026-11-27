@@ -1,3 +1,4 @@
+
 package com.vxaddon.addon;
 
 import com.mojang.logging.LogUtils;
@@ -22,10 +23,8 @@ public class VxAddon extends MeteorAddon {
 
         modules.add(new SusChunkFinder());
         modules.add(new KelpESP());
-        modules.add(new AutoBuildBot());
         modules.add(new StorageESP());
         modules.add(new BlockEntitiesESP());
-        modules.add(new SwingSpeed());
     }
 
     @Override
