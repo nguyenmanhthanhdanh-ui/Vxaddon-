@@ -17,7 +17,7 @@ import net.minecraft.world.level.block.ShulkerBoxBlock;
 import java.util.ArrayList;
 import java.util.List;
 
-public class StorageESP extends Module {
+public class VxStorageESP extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgStorage = settings.createGroup("Storage");
     private final SettingGroup sgRender = settings.createGroup("Render");
