@@ -6,10 +6,10 @@ import com.vxaddon.addon.VxAddon;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 
-public class Freecam extends Module {
+public class VxFreecam extends Module {
     private boolean enabledFreecam;
 
-    public Freecam() {
+    public VxFreecam() {
         super(
             VxAddon.CATEGORY,
             "freecam-mining",
