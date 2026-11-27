@@ -3,49 +3,64 @@ package com.vxaddon.addon.modules;
 
 import com.vxaddon.addon.VxAddon;
 
+import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 
-public class VxFreecam extends Module {
-    private boolean enabledFreecam;
+public class VXFreecam extends Module {
 
-    public VxFreecam() {
+    private final SettingGroup sgGeneral = settings.getDefaultGroup();
+
+    private final Setting<Integer> speed = sgGeneral.add(
+        new IntSetting.Builder()
+            .name("speed")
+            .description("Camera movement speed.")
+            .defaultValue(1000)
+            .min(100)
+            .max(10000)
+            .sliderMin(100)
+            .sliderMax(10000)
+            .build()
+    );
+
+    private boolean activatedMeteorFreecam = false;
+
+    public VXFreecam() {
         super(
             VxAddon.CATEGORY,
-            "freecam-mining",
-            "Toggles Meteor Freecam."
+            "vx-freecam",
+            "Controls Meteor Freecam."
         );
     }
 
     @Override
     public void onActivate() {
-        meteordevelopment.meteorclient.systems.modules.render.Freecam module =
-            Modules.get().get(
-                meteordevelopment.meteorclient.systems.modules.render.Freecam.class
-            );
+        var freecam = Modules.get().get(
+            meteordevelopment.meteorclient.systems.modules.render.Freecam.class
+        );
 
-        if (module == null) {
+        if (freecam == null) {
             error("Meteor Freecam not found.");
             toggle();
             return;
         }
 
-        enabledFreecam = !module.isActive();
-
-        if (enabledFreecam) module.toggle();
+        if (!freecam.isActive()) {
+            freecam.toggle();
+            activatedMeteorFreecam = true;
+        }
     }
 
     @Override
     public void onDeactivate() {
-        meteordevelopment.meteorclient.systems.modules.render.Freecam module =
-            Modules.get().get(
-                meteordevelopment.meteorclient.systems.modules.render.Freecam.class
-            );
+        var freecam = Modules.get().get(
+            meteordevelopment.meteorclient.systems.modules.render.Freecam.class
+        );
 
-        if (enabledFreecam && module != null && module.isActive()) {
-            module.toggle();
+        if (activatedMeteorFreecam && freecam != null && freecam.isActive()) {
+            freecam.toggle();
         }
 
-        enabledFreecam = false;
+        activatedMeteorFreecam = false;
     }
 }
