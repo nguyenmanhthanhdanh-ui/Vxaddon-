@@ -18,7 +18,6 @@ import org.slf4j.Logger;
 
 public class VxAddon extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();
-
     public static final Category CATEGORY = new Category("VX");
 
     @Override
@@ -29,7 +28,7 @@ public class VxAddon extends MeteorAddon {
 
         modules.add(new SusChunkFinder());
         modules.add(new KelpESP());
-        modules.add(new StorageESP());
+        modules.add(new VxStorageESP());
         modules.add(new BlockEntitiesESP());
         modules.add(new PlayerDebug());
         modules.add(new Freecam());
