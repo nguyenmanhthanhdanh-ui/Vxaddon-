@@ -1,9 +1,10 @@
+
 {
   "schemaVersion": 1,
   "id": "vx-addon",
   "version": "${version}",
   "name": "VX Addon",
-  "description": "VX Addon cho Meteor Client (1.21.4 - 1.21.11).",
+  "description": "VX Addon for Meteor Client 1.21.4.",
   "authors": [
     "VX"
   ],
@@ -14,9 +15,6 @@
       "com.vxaddon.addon.VxAddon"
     ]
   },
-  "mixins": [
-    "vx-addon.mixins.json"
-  ],
   "custom": {
     "meteor-client:color": "225,25,25",
     "modmenu": {
@@ -26,8 +24,8 @@
     }
   },
   "depends": {
-    "java": ">=${jdk_version}",
-    "minecraft": ">=1.21.4 <=1.21.11",
+    "java": ">=21",
+    "minecraft": "1.21.4",
     "meteor-client": "*"
   }
 }
