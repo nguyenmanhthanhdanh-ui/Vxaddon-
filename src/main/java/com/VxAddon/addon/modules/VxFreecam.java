@@ -7,7 +7,7 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 
-public class VXFreecam extends Module {
+public class VxFreecam extends Module {
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
@@ -25,7 +25,7 @@ public class VXFreecam extends Module {
 
     private boolean activatedMeteorFreecam = false;
 
-    public VXFreecam() {
+    public VxFreecam() {
         super(
             VxAddon.CATEGORY,
             "vx-freecam",
