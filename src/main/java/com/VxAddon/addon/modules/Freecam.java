@@ -5,44 +5,47 @@ import com.vxaddon.addon.VxAddon;
 
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
-import meteordevelopment.meteorclient.systems.modules.render.Freecam;
 
-public class FreecamMining extends Module {
+public class Freecam extends Module {
     private boolean enabledFreecam;
 
-    public FreecamMining() {
+    public Freecam() {
         super(
             VxAddon.CATEGORY,
             "freecam-mining",
-            "Enables Meteor Freecam while keeping normal player interaction range."
+            "Toggles Meteor Freecam."
         );
     }
 
     @Override
     public void onActivate() {
-        Freecam freecam = Modules.get().get(Freecam.class);
+        meteordevelopment.meteorclient.systems.modules.render.Freecam module =
+            Modules.get().get(
+                meteordevelopment.meteorclient.systems.modules.render.Freecam.class
+            );
 
-        if (freecam == null) {
-            error("Meteor Freecam module was not found.");
+        if (module == null) {
+            error("Meteor Freecam not found.");
             toggle();
             return;
         }
 
-        enabledFreecam = !freecam.isActive();
+        enabledFreecam = !module.isActive();
 
-        if (enabledFreecam) {
-            freecam.toggle();
-        }
+        if (enabledFreecam) module.toggle();
     }
 
     @Override
     public void onDeactivate() {
-        Freecam freecam = Modules.get().get(Freecam.class);
+        meteordevelopment.meteorclient.systems.modules.render.Freecam module =
+            Modules.get().get(
+                meteordevelopment.meteorclient.systems.modules.render.Freecam.class
+            );
 
-        if (enabledFreecam && freecam != null && freecam.isActive()) {
-            freecam.toggle();
+        if (enabledFreecam && module != null && module.isActive()) {
+            module.toggle();
         }
 
         enabledFreecam = false;
     }
-            }
+}
