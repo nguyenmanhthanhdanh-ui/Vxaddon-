@@ -1,6 +1,7 @@
 
 package com.vxaddon.addon.modules;
 
+import com.vxaddon.addon.VxAddon;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
