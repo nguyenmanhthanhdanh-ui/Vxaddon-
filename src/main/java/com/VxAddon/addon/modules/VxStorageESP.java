@@ -9,10 +9,10 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 
-import net.minecraft.block.Block;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.ShulkerBoxBlock;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,12 +26,9 @@ public class VxStorageESP extends Module {
     private final Setting<Integer> distance = sgGeneral.add(
         new IntSetting.Builder()
             .name("distance")
-            .description("Scanning distance.")
             .defaultValue(16)
             .min(4)
             .max(32)
-            .sliderMin(4)
-            .sliderMax(32)
             .build()
     );
 
@@ -63,17 +60,17 @@ public class VxStorageESP extends Module {
             .build()
     );
 
-    private final Setting<ShapeMode> shapeMode = sgRender.add(
-        new EnumSetting.Builder<ShapeMode>()
-            .name("shape-mode")
-            .defaultValue(ShapeMode.Lines)
-            .build()
-    );
-
     private final Setting<Boolean> tracers = sgRender.add(
         new BoolSetting.Builder()
             .name("tracers")
             .defaultValue(false)
+            .build()
+    );
+
+    private final Setting<ShapeMode> shapeMode = sgRender.add(
+        new EnumSetting.Builder<ShapeMode>()
+            .name("shape-mode")
+            .defaultValue(ShapeMode.Lines)
             .build()
     );
 
@@ -88,7 +85,7 @@ public class VxStorageESP extends Module {
 
     public VxStorageESP() {
         super(
-            com.vxaddon.addon.VxAddon.CATEGORY,
+            VxAddon.CATEGORY,
             "vx-storage-esp",
             "Highlights nearby storage blocks."
         );
@@ -114,28 +111,28 @@ public class VxStorageESP extends Module {
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (mc.world == null || mc.player == null) {
+        if (mc.level == null || mc.player == null) {
             storageBlocks.clear();
             return;
         }
 
         storageBlocks.clear();
 
-        BlockPos playerPos = mc.player.getBlockPos();
+        BlockPos playerPos = mc.player.blockPosition();
         int radius = distance.get();
 
         for (int x = -radius; x <= radius; x++) {
             for (int y = -radius; y <= radius; y++) {
                 for (int z = -radius; z <= radius; z++) {
 
-                    BlockPos pos = playerPos.add(x, y, z);
+                    BlockPos pos = playerPos.offset(x, y, z);
 
-                    if (!mc.world.isChunkLoaded(pos)) continue;
+                    if (!mc.level.hasChunkAt(pos)) continue;
 
-                    Block block = mc.world.getBlockState(pos).getBlock();
+                    Block block = mc.level.getBlockState(pos).getBlock();
 
                     if (isStorage(block)) {
-                        storageBlocks.add(pos.toImmutable());
+                        storageBlocks.add(pos.immutable());
                     }
                 }
             }
@@ -144,7 +141,7 @@ public class VxStorageESP extends Module {
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        if (mc.world == null || mc.player == null) return;
+        if (mc.level == null || mc.player == null) return;
 
         SettingColor c = color.get();
 
@@ -170,4 +167,4 @@ public class VxStorageESP extends Module {
             }
         }
     }
-    }
+}
