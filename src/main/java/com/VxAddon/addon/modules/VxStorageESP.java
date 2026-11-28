@@ -8,6 +8,7 @@ import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 
@@ -18,7 +19,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
@@ -54,7 +54,7 @@ public class VxStorageESP extends Module {
             .build()
     );
 
-    // STORAGE SELECTION
+    // STORAGE
 
     private final Setting<Boolean> chest = sgStorage.add(
         new BoolSetting.Builder()
@@ -135,7 +135,7 @@ public class VxStorageESP extends Module {
             .build()
     );
 
-    // INDIVIDUAL COLORS
+    // COLORS
 
     private final Setting<SettingColor> chestColor = sgRender.add(
         new ColorSetting.Builder()
@@ -199,7 +199,6 @@ public class VxStorageESP extends Module {
     // CACHE
 
     private final Map<ChunkPos, Set<BlockPos>> cache = new HashMap<>();
-    private final Set<BlockPos> checkedPositions = new HashSet<>();
 
     private BlockPos scanOrigin;
     private ChunkPos lastPlayerChunk;
@@ -207,8 +206,7 @@ public class VxStorageESP extends Module {
     private int scanX;
     private int scanY;
     private int scanZ;
-
-    private boolean scanFinished;
+    private int scanDistance;
 
     public VxStorageESP() {
         super(
@@ -222,28 +220,25 @@ public class VxStorageESP extends Module {
     public void onActivate() {
         scanOrigin = null;
         lastPlayerChunk = null;
-        scanFinished = false;
     }
 
     @Override
     public void onDeactivate() {
-        // Giữ cache trong phiên chơi.
         scanOrigin = null;
         lastPlayerChunk = null;
-        scanFinished = false;
     }
 
     private void startScan() {
         if (mc.player == null) return;
 
         scanOrigin = mc.player.blockPosition();
-
-        scanX = -distance.get();
-        scanY = -distance.get();
-        scanZ = -distance.get();
-
         lastPlayerChunk = mc.player.chunkPosition();
-        scanFinished = false;
+
+        scanDistance = distance.get();
+
+        scanX = -scanDistance;
+        scanY = -scanDistance;
+        scanZ = -scanDistance;
     }
 
     private boolean isStorage(Block block) {
@@ -272,10 +267,14 @@ public class VxStorageESP extends Module {
              block == Blocks.DROPPER);
     }
 
+    private void resetScanPosition() {
+        scanX = -scanDistance;
+        scanY = -scanDistance;
+        scanZ = -scanDistance;
+    }
+
     private void scanNextBlock() {
         if (mc.level == null || scanOrigin == null) return;
-
-        int radius = distance.get();
 
         BlockPos pos = scanOrigin.offset(
             scanX,
@@ -283,9 +282,9 @@ public class VxStorageESP extends Module {
             scanZ
         );
 
-        if (checkedPositions.add(pos.immutable()) &&
-            mc.level.hasChunkAt(pos)) {
-
+        // Only inspect loaded positions.
+        // Unloaded positions will be checked again next scan cycle.
+        if (mc.level.hasChunkAt(pos)) {
             Block block = mc.level.getBlockState(pos).getBlock();
 
             if (isStorage(block)) {
@@ -298,20 +297,22 @@ public class VxStorageESP extends Module {
             }
         }
 
+        // Move scan cursor.
         scanZ++;
 
-        if (scanZ > radius) {
-            scanZ = -radius;
+        if (scanZ > scanDistance) {
+            scanZ = -scanDistance;
             scanY++;
         }
 
-        if (scanY > radius) {
-            scanY = -radius;
+        if (scanY > scanDistance) {
+            scanY = -scanDistance;
             scanX++;
         }
 
-        if (scanX > radius) {
-            scanFinished = true;
+        // Restart after finishing the scan area.
+        if (scanX > scanDistance) {
+            resetScanPosition();
         }
     }
 
@@ -322,15 +323,14 @@ public class VxStorageESP extends Module {
         ChunkPos currentChunk = mc.player.chunkPosition();
 
         if (lastPlayerChunk == null ||
-            !lastPlayerChunk.equals(currentChunk)) {
+            !lastPlayerChunk.equals(currentChunk) ||
+            scanDistance != distance.get()) {
             startScan();
         }
 
-        if (scanFinished) return;
-
         int budget = scanSpeed.get();
 
-        while (budget > 0 && !scanFinished) {
+        while (budget > 0) {
             scanNextBlock();
             budget--;
         }
@@ -372,11 +372,6 @@ public class VxStorageESP extends Module {
     private void onRender(Render3DEvent event) {
         if (mc.level == null || mc.player == null) return;
 
-        // Lấy vị trí camera thật, hỗ trợ góc nhìn thứ nhất và F5.
-        Vec3 cameraPos = mc.gameRenderer
-            .getMainCamera()
-            .getPosition();
-
         double fadeLimit = fadeDistance.get();
         double fadeLimitSquared = fadeLimit * fadeLimit;
 
@@ -386,6 +381,8 @@ public class VxStorageESP extends Module {
             if (!mc.level.hasChunk(chunk.x, chunk.z)) continue;
 
             for (BlockPos pos : entry.getValue()) {
+                if (!mc.level.hasChunkAt(pos)) continue;
+
                 BlockState state = mc.level.getBlockState(pos);
                 Block block = state.getBlock();
 
@@ -395,9 +392,9 @@ public class VxStorageESP extends Module {
                 double centerY = pos.getY() + 0.5;
                 double centerZ = pos.getZ() + 0.5;
 
-                double dx = centerX - cameraPos.x;
-                double dy = centerY - cameraPos.y;
-                double dz = centerZ - cameraPos.z;
+                double dx = centerX - RenderUtils.center.x;
+                double dy = centerY - RenderUtils.center.y;
+                double dz = centerZ - RenderUtils.center.z;
 
                 double distSquared = dx * dx + dy * dy + dz * dz;
 
@@ -423,7 +420,6 @@ public class VxStorageESP extends Module {
                     (int) (fillOpacity.get() * fade)
                 );
 
-                // ESP box
                 event.renderer.box(
                     pos,
                     side,
@@ -432,12 +428,11 @@ public class VxStorageESP extends Module {
                     0
                 );
 
-                // TRACER: từ camera thật đến tâm block.
                 if (tracers.get()) {
                     event.renderer.line(
-                        cameraPos.x,
-                        cameraPos.y,
-                        cameraPos.z,
+                        RenderUtils.center.x,
+                        RenderUtils.center.y,
+                        RenderUtils.center.z,
                         centerX,
                         centerY,
                         centerZ,
@@ -447,4 +442,5 @@ public class VxStorageESP extends Module {
             }
         }
     }
-}
+                }
+    
