@@ -1,4 +1,3 @@
-
 package com.vxaddon.addon.modules;
 
 import com.vxaddon.addon.VxAddon;
@@ -17,6 +16,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.network.chat.Component;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
@@ -64,14 +66,14 @@ public class SusChunkFinder extends Module {
     private final Setting<Boolean> beeNest = sgDetect.add(
         new BoolSetting.Builder()
             .name("bee-nest")
-            .defaultValue(true)
+            .defaultValue(false)
             .build()
     );
 
     private final Setting<Boolean> kelp = sgDetect.add(
         new BoolSetting.Builder()
             .name("kelp")
-            .defaultValue(true)
+            .defaultValue(false)
             .build()
     );
 
@@ -85,6 +87,20 @@ public class SusChunkFinder extends Module {
     private final Setting<Boolean> storage = sgDetect.add(
         new BoolSetting.Builder()
             .name("storage")
+            .defaultValue(false)
+            .build()
+    );
+
+    private final Setting<Boolean> chatFeedback = sgGeneral.add(
+        new BoolSetting.Builder()
+            .name("chat-feedback")
+            .defaultValue(false)
+            .build()
+    );
+
+    private final Setting<Boolean> showChunk = sgRender.add(
+        new BoolSetting.Builder()
+            .name("show-chunk")
             .defaultValue(true)
             .build()
     );
@@ -99,9 +115,11 @@ public class SusChunkFinder extends Module {
     private final Setting<Integer> opacity = sgRender.add(
         new IntSetting.Builder()
             .name("opacity")
+            .description("Controls the transparency of the chunk highlight.")
             .defaultValue(60)
             .min(0)
             .max(255)
+            .sliderMax(255)
             .build()
     );
 
@@ -114,13 +132,18 @@ public class SusChunkFinder extends Module {
 
     private static final int BLOCKS_PER_BATCH = 4096;
 
-    private final Map<ChunkPos, Integer> suspiciousChunks = new HashMap<>();
+    // Cache kết quả đã quét, kể cả chunk không đáng nghi.
+    private final Map<ChunkPos, ChunkResult> cache = new HashMap<>();
+    private final Set<ChunkPos> scannedChunks = new HashSet<>();
+
     private final Queue<ChunkScan> scanQueue = new ArrayDeque<>();
 
     private ChunkScan currentScan;
     private ChunkPos lastPlayerChunk;
+    private ClientLevel cachedLevel;
 
     private int tickCounter;
+    private int refreshCounter;
 
     private int minScanY;
     private int maxScanY;
@@ -135,21 +158,26 @@ public class SusChunkFinder extends Module {
 
     @Override
     public void onActivate() {
-        resetScanner();
+        scanQueue.clear();
+        currentScan = null;
+        lastPlayerChunk = null;
+        tickCounter = 0;
     }
 
     @Override
     public void onDeactivate() {
-        resetScanner();
-    }
-
-    private void resetScanner() {
-        suspiciousChunks.clear();
+        // Giữ cache trong phiên chơi hiện tại.
         scanQueue.clear();
-
         currentScan = null;
         lastPlayerChunk = null;
-        tickCounter = 0;
+    }
+
+    private void clearCache() {
+        cache.clear();
+        scannedChunks.clear();
+        scanQueue.clear();
+        currentScan = null;
+        lastPlayerChunk = null;
     }
 
     private void buildQueue() {
@@ -164,52 +192,87 @@ public class SusChunkFinder extends Module {
         int radius = distance.get();
 
         minScanY = Math.max(-60, mc.level.getMinY());
-        maxScanY = Math.min(319, mc.level.getMaxY() - 1);
+        maxScanY = mc.level.getMaxY() - 1;
 
         for (int x = -radius; x <= radius; x++) {
             for (int z = -radius; z <= radius; z++) {
-                scanQueue.add(
-                    new ChunkScan(center.x + x, center.z + z)
+
+                ChunkPos pos = new ChunkPos(
+                    center.x + x,
+                    center.z + z
                 );
+
+                if (scannedChunks.contains(pos)) continue;
+
+                scanQueue.add(new ChunkScan(pos.x, pos.z));
             }
         }
     }
 
-    private boolean isTargetBlock(Block block) {
+    private String getTargetName(Block block) {
         if (amethyst.get() &&
             (block == Blocks.AMETHYST_CLUSTER ||
-             block == Blocks.BUDDING_AMETHYST)) return true;
+             block == Blocks.BUDDING_AMETHYST)) {
+            return "Amethyst";
+        }
 
         if (beeNest.get() &&
             (block == Blocks.BEE_NEST ||
-             block == Blocks.BEEHIVE)) return true;
+             block == Blocks.BEEHIVE)) {
+            return "Bee Nest";
+        }
 
         if (kelp.get() &&
             (block == Blocks.KELP ||
-             block == Blocks.KELP_PLANT)) return true;
+             block == Blocks.KELP_PLANT)) {
+            return "Kelp";
+        }
 
-        if (vine.get() && block == Blocks.VINE) return true;
+        if (vine.get() && block == Blocks.VINE) {
+            return "Vine";
+        }
 
-        return storage.get() &&
+        if (storage.get() &&
             (block == Blocks.CHEST ||
              block == Blocks.TRAPPED_CHEST ||
              block == Blocks.BARREL ||
-             block instanceof ShulkerBoxBlock);
+             block == Blocks.ENDER_CHEST ||
+             block instanceof ShulkerBoxBlock)) {
+            return "Storage";
+        }
+
+        return null;
+    }
+
+    private void sendFeedback(String name, BlockPos pos) {
+        if (!chatFeedback.get() || mc.player == null) return;
+
+        mc.player.displayClientMessage(
+            Component.literal(
+                "[VX SusChunkFinder]\n" +
+                "Phát hiện: " + name + "\n" +
+                "Tọa độ: X: " + pos.getX() +
+                ", Y: " + pos.getY() +
+                ", Z: " + pos.getZ()
+            ),
+            false
+        );
     }
 
     @EventHandler
     private void onTick(TickEvent.Pre event) {
-        if (mc.level == null || mc.player == null) {
-            resetScanner();
-            return;
+        if (mc.level == null || mc.player == null) return;
+
+        // Xóa cache khi chuyển sang thế giới khác.
+        if (cachedLevel != mc.level) {
+            cachedLevel = mc.level;
+            clearCache();
         }
 
         ChunkPos playerChunk = mc.player.chunkPosition();
 
         if (lastPlayerChunk == null ||
             !lastPlayerChunk.equals(playerChunk)) {
-
-            suspiciousChunks.clear();
             buildQueue();
         }
 
@@ -219,6 +282,17 @@ public class SusChunkFinder extends Module {
 
         tickCounter = 0;
 
+        // Kiểm tra lại các chunk mới tải sau mỗi khoảng thời gian.
+        refreshCounter++;
+
+        if (refreshCounter >= 40) {
+            refreshCounter = 0;
+
+            if (currentScan == null && scanQueue.isEmpty()) {
+                buildQueue();
+            }
+        }
+
         int budget = BLOCKS_PER_BATCH;
 
         while (budget > 0) {
@@ -226,10 +300,7 @@ public class SusChunkFinder extends Module {
             if (currentScan == null) {
                 currentScan = scanQueue.poll();
 
-                if (currentScan == null) {
-                    buildQueue();
-                    return;
-                }
+                if (currentScan == null) return;
 
                 LevelChunk chunk = mc.level.getChunkSource()
                     .getChunk(
@@ -242,9 +313,12 @@ public class SusChunkFinder extends Module {
                     currentScan = null;
                     continue;
                 }
+
+                currentScan.chunk = chunk;
             }
 
-            int totalBlocks = 16 * 16 * (maxScanY - minScanY + 1);
+            int totalBlocks = 16 * 16 *
+                (maxScanY - minScanY + 1);
 
             BlockPos.MutableBlockPos pos =
                 new BlockPos.MutableBlockPos();
@@ -264,10 +338,19 @@ public class SusChunkFinder extends Module {
                     currentScan.z * 16 + z
                 );
 
-                Block block = mc.level.getBlockState(pos).getBlock();
+                Block block = currentScan.chunk
+                    .getBlockState(pos)
+                    .getBlock();
 
-                if (isTargetBlock(block)) {
+                String targetName = getTargetName(block);
+
+                if (targetName != null) {
                     currentScan.score++;
+
+                    if (currentScan.firstName == null) {
+                        currentScan.firstName = targetName;
+                        currentScan.firstPos = pos.immutable();
+                    }
                 }
 
                 budget--;
@@ -280,13 +363,36 @@ public class SusChunkFinder extends Module {
                     currentScan.z
                 );
 
-                if (currentScan.score >= sensitivity.get()) {
-                    suspiciousChunks.put(
-                        finished,
-                        currentScan.score
+                scannedChunks.add(finished);
+
+                boolean suspicious =
+                    currentScan.score >= sensitivity.get();
+
+                if (suspicious) {
+                    ChunkResult result = new ChunkResult(
+                        currentScan.score,
+                        currentScan.firstName,
+                        currentScan.firstPos
                     );
+
+                    cache.put(finished, result);
+
+                    if (result.firstName != null &&
+                        result.firstPos != null) {
+                        sendFeedback(
+                            result.firstName,
+                            result.firstPos
+                        );
+                    }
                 } else {
-                    suspiciousChunks.remove(finished);
+                    cache.put(
+                        finished,
+                        new ChunkResult(
+                            currentScan.score,
+                            null,
+                            null
+                        )
+                    );
                 }
 
                 currentScan = null;
@@ -307,7 +413,22 @@ public class SusChunkFinder extends Module {
             opacity.get()
         );
 
-        for (ChunkPos pos : suspiciousChunks.keySet()) {
+        Vec3 cameraPos = mc.gameRenderer
+            .getMainCamera()
+            .getPosition();
+
+        for (Map.Entry<ChunkPos, ChunkResult> entry :
+            cache.entrySet()) {
+
+            ChunkPos pos = entry.getKey();
+            ChunkResult result = entry.getValue();
+
+            if (result == null || result.firstPos == null) continue;
+
+            if (result.score < sensitivity.get()) continue;
+
+            // Không render chunk đã unload.
+            if (!mc.level.hasChunk(pos.x, pos.z)) continue;
 
             double x1 = pos.getMinBlockX();
             double z1 = pos.getMinBlockZ();
@@ -315,19 +436,27 @@ public class SusChunkFinder extends Module {
             double x2 = x1 + 16;
             double z2 = z1 + 16;
 
-            event.renderer.box(
-                x1, mc.level.getMinY(), z1,
-                x2, mc.level.getMaxY(), z2,
-                c, c, ShapeMode.Lines, 0
-            );
+            double y = result.firstPos.getY() + 0.02;
 
+            // Mặt phẳng vuông nằm ngang.
+            if (showChunk.get()) {
+                event.renderer.box(
+                    x1, y, z1,
+                    x2, y + 0.02, z2,
+                    c, c,
+                    ShapeMode.Lines,
+                    0
+                );
+            }
+
+            // Tracer bắt đầu từ camera thật.
             if (tracers.get()) {
                 event.renderer.line(
-                    mc.player.getX(),
-                    mc.player.getEyeY(),
-                    mc.player.getZ(),
+                    cameraPos.x,
+                    cameraPos.y,
+                    cameraPos.z,
                     x1 + 8,
-                    mc.player.getY(),
+                    y,
                     z1 + 8,
                     c
                 );
@@ -342,9 +471,30 @@ public class SusChunkFinder extends Module {
         private int index;
         private int score;
 
+        private String firstName;
+        private BlockPos firstPos;
+
+        private LevelChunk chunk;
+
         private ChunkScan(int x, int z) {
             this.x = x;
             this.z = z;
         }
     }
-}
+
+    private static class ChunkResult {
+        private final int score;
+        private final String firstName;
+        private final BlockPos firstPos;
+
+        private ChunkResult(
+            int score,
+            String firstName,
+            BlockPos firstPos
+        ) {
+            this.score = score;
+            this.firstName = firstName;
+            this.firstPos = firstPos;
+        }
+    }
+                }
