@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BeehiveBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.sounds.SoundEvents;
 
 import java.util.*;
 
@@ -51,6 +52,21 @@ public class SusChunkFinder extends Module {
         .defaultValue(false)
         .build());
 
+    private final Setting<Boolean> suspiciousTerrain = sgGeneral.add(new BoolSetting.Builder()
+        .name("suspicious-terrain")
+        .defaultValue(false)
+        .build());
+
+    private final Setting<Integer> terrainSensitivity = sgGeneral.add(new IntSetting.Builder()
+        .name("terrain-sensitivity")
+        .defaultValue(12)
+        .min(4)
+        .max(100)
+        .sliderMin(4)
+        .sliderMax(50)
+        .visible(suspiciousTerrain::get)
+        .build());
+
     private final Setting<Integer> distance = sgGeneral.add(new IntSetting.Builder()
         .name("distance")
         .defaultValue(8)
@@ -81,6 +97,12 @@ public class SusChunkFinder extends Module {
     private final Setting<Boolean> chatFeedback = sgGeneral.add(new BoolSetting.Builder()
         .name("chat-feedback")
         .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> feedbackSound = sgGeneral.add(new BoolSetting.Builder()
+        .name("feedback-sound")
+        .defaultValue(true)
+        .visible(chatFeedback::get)
         .build());
 
     private final Setting<Boolean> showChunk = sgRender.add(new BoolSetting.Builder()
@@ -130,8 +152,7 @@ public class SusChunkFinder extends Module {
     private final Set<ChunkPos> queuedChunks = new HashSet<>();
 
     private net.minecraft.client.multiplayer.ClientLevel lastLevel;
-    private ChunkPos lastPlayerChunk;
-    private int lastDistance = -1;
+    private int lastSettingsHash = Integer.MIN_VALUE;
 
     public SusChunkFinder() {
         super(VxAddon.CATEGORY, "sus-chunk-finder", "Finds suspicious chunks.");
@@ -139,20 +160,34 @@ public class SusChunkFinder extends Module {
 
     @Override
     public void onActivate() {
-        cache.clear();
-        scannedChunks.clear();
-        scanQueue.clear();
-        queuedChunks.clear();
-
+        clearAllData();
         lastLevel = null;
-        lastPlayerChunk = null;
-        lastDistance = -1;
+        lastSettingsHash = Integer.MIN_VALUE;
     }
 
     @Override
     public void onDeactivate() {
+        clearAllData();
+    }
+
+    private void clearAllData() {
+        cache.clear();
+        scannedChunks.clear();
         scanQueue.clear();
         queuedChunks.clear();
+    }
+
+    private int getScanSettingsHash() {
+        return Objects.hash(
+            amethyst.get(),
+            beeNest.get(),
+            kelp.get(),
+            vine.get(),
+            storage.get(),
+            suspiciousTerrain.get(),
+            terrainSensitivity.get(),
+            sensitivity.get()
+        );
     }
 
     @EventHandler
@@ -160,29 +195,42 @@ public class SusChunkFinder extends Module {
         if (mc.player == null || mc.level == null) return;
 
         if (lastLevel != mc.level) {
-            cache.clear();
-            scannedChunks.clear();
-            scanQueue.clear();
-            queuedChunks.clear();
-
+            clearAllData();
             lastLevel = mc.level;
-            lastPlayerChunk = null;
-            lastDistance = -1;
+            lastSettingsHash = Integer.MIN_VALUE;
+        }
+
+        int settingsHash = getScanSettingsHash();
+
+        if (settingsHash != lastSettingsHash) {
+            clearAllData();
+            lastSettingsHash = settingsHash;
         }
 
         ChunkPos playerChunk = new ChunkPos(mc.player.blockPosition());
-        int currentDistance = distance.get();
 
-        if (lastPlayerChunk == null
-            || !lastPlayerChunk.equals(playerChunk)
-            || lastDistance != currentDistance) {
+        // Xóa toàn bộ dữ liệu của chunk đã đi quá xa.
+        removeChunksOutsideRange(playerChunk);
 
-            lastPlayerChunk = playerChunk;
-            lastDistance = currentDistance;
-        }
-
+        // Chỉ đưa chunk đang được tải vào hàng đợi.
         queueNearbyChunks(playerChunk);
+
         scanLoadedChunks();
+    }
+
+    private boolean isWithinRange(ChunkPos chunk, ChunkPos center) {
+        int range = distance.get();
+
+        return Math.abs(chunk.x - center.x) <= range
+            && Math.abs(chunk.z - center.z) <= range;
+    }
+
+    private void removeChunksOutsideRange(ChunkPos center) {
+        cache.keySet().removeIf(chunk -> !isWithinRange(chunk, center));
+        scannedChunks.removeIf(chunk -> !isWithinRange(chunk, center));
+
+        scanQueue.removeIf(task -> !isWithinRange(task.chunk, center));
+        queuedChunks.removeIf(chunk -> !isWithinRange(chunk, center));
     }
 
     private void queueNearbyChunks(ChunkPos center) {
@@ -194,6 +242,7 @@ public class SusChunkFinder extends Module {
 
                 if (scannedChunks.contains(pos)) continue;
                 if (queuedChunks.contains(pos)) continue;
+                if (!isChunkLoaded(pos)) continue;
 
                 scanQueue.add(new ScanTask(
                     pos,
@@ -224,8 +273,9 @@ public class SusChunkFinder extends Module {
 
             if (task == null) break;
 
+            // Chunk đã unload: bỏ tác vụ, không giữ kết quả cũ.
             if (!isChunkLoaded(task.chunk)) {
-                scanQueue.add(task);
+                queuedChunks.remove(task.chunk);
                 continue;
             }
 
@@ -242,7 +292,10 @@ public class SusChunkFinder extends Module {
             }
 
             if (task.finished()) {
-                Detection detection = task.finish(sensitivity.get());
+                Detection detection = task.finish(
+                    sensitivity.get(),
+                    terrainSensitivity.get()
+                );
 
                 if (!detection.found.isEmpty()) {
                     cache.put(task.chunk, detection);
@@ -254,7 +307,12 @@ public class SusChunkFinder extends Module {
                 scannedChunks.add(task.chunk);
                 queuedChunks.remove(task.chunk);
             } else {
-                scanQueue.add(task);
+                // Nếu chunk unload trong lúc quét thì không lưu tác vụ dở.
+                if (isChunkLoaded(task.chunk)) {
+                    scanQueue.add(task);
+                } else {
+                    queuedChunks.remove(task.chunk);
+                }
             }
         }
     }
@@ -269,14 +327,14 @@ public class SusChunkFinder extends Module {
             task.add("Amethyst", pos);
         }
 
-        int honeyLevel = state.is(Blocks.BEE_NEST) || state.is(Blocks.BEEHIVE)
-            ? state.getValue(BeehiveBlock.HONEY_LEVEL)
-            : 0;
-
         if (beeNest.get()
-            && honeyLevel >= 1
-            && honeyLevel <= 5) {
-            task.add("Bee Nest", pos);
+            && (state.is(Blocks.BEE_NEST) || state.is(Blocks.BEEHIVE))) {
+
+            int honeyLevel = state.getValue(BeehiveBlock.HONEY_LEVEL);
+
+            if (honeyLevel >= 1 && honeyLevel <= 5) {
+                task.add("Bee Nest", pos);
+            }
         }
 
         if (kelp.get() && (
@@ -286,12 +344,19 @@ public class SusChunkFinder extends Module {
             task.add("Kelp", pos);
         }
 
-        if (vine.get() && state.is(Blocks.VINE) && isLongVine(pos)) {
+        if (vine.get()
+            && state.is(Blocks.VINE)
+            && isLongVine(pos)) {
+
             task.add("Long Vine", pos);
         }
 
         if (storage.get() && isStorage(state)) {
             task.add("Storage", pos);
+        }
+
+        if (suspiciousTerrain.get() && isSuspiciousTerrain(state)) {
+            task.add("Suspicious Terrain", pos);
         }
     }
 
@@ -321,6 +386,31 @@ public class SusChunkFinder extends Module {
             || block instanceof ShulkerBoxBlock;
     }
 
+    // Heuristic: tìm mật độ block nhân tạo bất thường trong chunk.
+    private boolean isSuspiciousTerrain(BlockState state) {
+        return state.is(Blocks.COBBLESTONE)
+            || state.is(Blocks.MOSSY_COBBLESTONE)
+            || state.is(Blocks.STONE_BRICKS)
+            || state.is(Blocks.CRACKED_STONE_BRICKS)
+            || state.is(Blocks.MOSSY_STONE_BRICKS)
+            || state.is(Blocks.OAK_PLANKS)
+            || state.is(Blocks.SPRUCE_PLANKS)
+            || state.is(Blocks.BIRCH_PLANKS)
+            || state.is(Blocks.JUNGLE_PLANKS)
+            || state.is(Blocks.ACACIA_PLANKS)
+            || state.is(Blocks.DARK_OAK_PLANKS)
+            || state.is(Blocks.MANGROVE_PLANKS)
+            || state.is(Blocks.CHERRY_PLANKS)
+            || state.is(Blocks.BAMBOO_PLANKS)
+            || state.is(Blocks.GLASS)
+            || state.is(Blocks.TORCH)
+            || state.is(Blocks.LANTERN)
+            || state.is(Blocks.LADDER)
+            || state.is(Blocks.IRON_BARS)
+            || state.is(Blocks.RAIL)
+            || state.is(Blocks.POWERED_RAIL);
+    }
+
     private void sendFeedback(Detection detection) {
         if (!chatFeedback.get()) return;
 
@@ -331,6 +421,10 @@ public class SusChunkFinder extends Module {
                 found.pos.getY(),
                 found.pos.getZ()
             );
+        }
+
+        if (feedbackSound.get() && mc.player != null) {
+            mc.player.playSound(SoundEvents.NOTE_BLOCK_PLING, 0.8f, 1.4f);
         }
     }
 
@@ -347,9 +441,13 @@ public class SusChunkFinder extends Module {
             opacity.get()
         );
 
+        ChunkPos playerChunk = new ChunkPos(mc.player.blockPosition());
+
         for (Map.Entry<ChunkPos, Detection> entry : cache.entrySet()) {
             ChunkPos chunk = entry.getKey();
 
+            // Không render chunk ngoài phạm vi hoặc đã unload.
+            if (!isWithinRange(chunk, playerChunk)) continue;
             if (!isChunkLoaded(chunk)) continue;
 
             int x = chunk.getMinBlockX();
@@ -413,7 +511,6 @@ public class SusChunkFinder extends Module {
         private BlockPos nextPosition() {
             if (finished()) return null;
 
-            int height = maxY - minY;
             int yIndex = index / 256;
             int column = index % 256;
 
@@ -435,11 +532,15 @@ public class SusChunkFinder extends Module {
             positions.putIfAbsent(name, pos.immutable());
         }
 
-        private Detection finish(int sensitivity) {
+        private Detection finish(int sensitivity, int terrainSensitivity) {
             Detection result = new Detection();
 
             for (Map.Entry<String, Integer> entry : counts.entrySet()) {
-                if (entry.getValue() >= sensitivity) {
+                int required = entry.getKey().equals("Suspicious Terrain")
+                    ? terrainSensitivity
+                    : sensitivity;
+
+                if (entry.getValue() >= required) {
                     BlockPos pos = positions.get(entry.getKey());
 
                     result.found.add(new Found(entry.getKey(), pos));
@@ -449,5 +550,5 @@ public class SusChunkFinder extends Module {
             return result;
         }
     }
-            }
+                                                               }
                 
