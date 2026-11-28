@@ -8,6 +8,7 @@ import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 
@@ -15,7 +16,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
@@ -127,7 +127,7 @@ public class BlockEntitiesESP extends Module {
     private final Setting<Boolean> tracers = sgRender.add(
         new BoolSetting.Builder()
             .name("tracers")
-            .defaultValue(false)
+            .defaultValue(true)
             .build()
     );
 
@@ -149,20 +149,14 @@ public class BlockEntitiesESP extends Module {
 
     private final Map<ChunkPos, Set<BlockPos>> cache = new HashMap<>();
 
-    private final Set<BlockPos> scannedPositions = new HashSet<>();
-
     private BlockPos scanOrigin;
     private ChunkPos lastPlayerChunk;
-
     private Object cachedLevel;
 
     private int scanX;
     private int scanY;
     private int scanZ;
-
-    private int lastDistance = -1;
-
-    private boolean scanFinished;
+    private int scanDistance;
 
     public BlockEntitiesESP() {
         super(
@@ -176,45 +170,40 @@ public class BlockEntitiesESP extends Module {
     public void onActivate() {
         scanOrigin = null;
         lastPlayerChunk = null;
-        scanFinished = false;
     }
 
     @Override
     public void onDeactivate() {
-        // Giữ cache khi tắt module.
+        // Keep cache during the current world session.
         scanOrigin = null;
         lastPlayerChunk = null;
-        scanFinished = false;
     }
 
     private void clearCache() {
         cache.clear();
-        scannedPositions.clear();
 
         scanOrigin = null;
         lastPlayerChunk = null;
-
-        scanFinished = false;
     }
 
     private void startScan() {
         if (mc.player == null) return;
 
         scanOrigin = mc.player.blockPosition();
-
-        int radius = distance.get();
-
-        scanX = -radius;
-        scanY = -radius;
-        scanZ = -radius;
-
         lastPlayerChunk = mc.player.chunkPosition();
-        lastDistance = radius;
 
-        scanFinished = false;
+        scanDistance = distance.get();
+
+        resetScanPosition();
     }
 
-    // Tìm tất cả block mục tiêu, không phụ thuộc setting bật/tắt.
+    private void resetScanPosition() {
+        scanX = -scanDistance;
+        scanY = -scanDistance;
+        scanZ = -scanDistance;
+    }
+
+    // Detect all target blocks regardless of settings.
     private boolean isCandidate(Block block) {
         return block == Blocks.FURNACE
             || block == Blocks.BLAST_FURNACE
@@ -228,7 +217,7 @@ public class BlockEntitiesESP extends Module {
             || block == Blocks.BREWING_STAND;
     }
 
-    // Kiểm tra setting của từng block.
+    // Check the setting for each block.
     private boolean isEnabledTarget(Block block) {
         if (furnace.get() && block == Blocks.FURNACE) return true;
         if (blastFurnace.get() && block == Blocks.BLAST_FURNACE) return true;
@@ -247,46 +236,42 @@ public class BlockEntitiesESP extends Module {
     private void scanNextBlock() {
         if (mc.level == null || scanOrigin == null) return;
 
-        int radius = distance.get();
-
         BlockPos pos = scanOrigin.offset(
             scanX,
             scanY,
             scanZ
         );
 
+        // Do not mark unloaded positions as scanned.
         if (mc.level.hasChunkAt(pos)) {
-            BlockPos immutablePos = pos.immutable();
+            Block block = mc.level.getBlockState(pos).getBlock();
 
-            if (scannedPositions.add(immutablePos)) {
-                Block block = mc.level.getBlockState(pos).getBlock();
+            if (isCandidate(block)) {
+                ChunkPos chunk = new ChunkPos(pos);
 
-                if (isCandidate(block)) {
-                    ChunkPos chunk = new ChunkPos(pos);
-
-                    cache.computeIfAbsent(
-                        chunk,
-                        key -> new HashSet<>()
-                    ).add(immutablePos);
-                }
+                cache.computeIfAbsent(
+                    chunk,
+                    key -> new HashSet<>()
+                ).add(pos.immutable());
             }
         }
 
-        // Tiến đến block tiếp theo.
+        // Move to next position.
         scanZ++;
 
-        if (scanZ > radius) {
-            scanZ = -radius;
+        if (scanZ > scanDistance) {
+            scanZ = -scanDistance;
             scanY++;
         }
 
-        if (scanY > radius) {
-            scanY = -radius;
+        if (scanY > scanDistance) {
+            scanY = -scanDistance;
             scanX++;
         }
 
-        if (scanX > radius) {
-            scanFinished = true;
+        // Restart after finishing the scan area.
+        if (scanX > scanDistance) {
+            resetScanPosition();
         }
     }
 
@@ -294,7 +279,7 @@ public class BlockEntitiesESP extends Module {
     private void onTick(TickEvent.Post event) {
         if (mc.level == null || mc.player == null) return;
 
-        // Xóa cache khi đổi thế giới.
+        // Clear cache when changing world.
         if (cachedLevel != mc.level) {
             cachedLevel = mc.level;
             clearCache();
@@ -302,19 +287,18 @@ public class BlockEntitiesESP extends Module {
 
         ChunkPos currentChunk = mc.player.chunkPosition();
 
-        // Quét vùng mới khi đổi chunk hoặc Distance thay đổi.
+        // Start a new scan when moving to another chunk
+        // or changing the scan distance.
         if (lastPlayerChunk == null
             || !lastPlayerChunk.equals(currentChunk)
-            || lastDistance != distance.get()) {
+            || scanDistance != distance.get()) {
 
             startScan();
         }
 
-        if (scanFinished) return;
-
         int budget = scanSpeed.get();
 
-        while (budget > 0 && !scanFinished) {
+        while (budget > 0) {
             scanNextBlock();
             budget--;
         }
@@ -326,23 +310,17 @@ public class BlockEntitiesESP extends Module {
 
         SettingColor c = color.get();
 
-        Vec3 cameraPos = mc.gameRenderer
-            .getMainCamera()
-            .getPosition();
-
         double maxDistance = distance.get();
-        double maxDistanceSquared =
-            maxDistance * maxDistance;
+        double maxDistanceSquared = maxDistance * maxDistance;
 
-        for (Map.Entry<ChunkPos, Set<BlockPos>> entry :
-            cache.entrySet()) {
-
+        for (Map.Entry<ChunkPos, Set<BlockPos>> entry : cache.entrySet()) {
             ChunkPos chunk = entry.getKey();
 
-            // Không render chunk đã unload.
+            // Do not render unloaded chunks.
             if (!mc.level.hasChunk(chunk.x, chunk.z)) continue;
 
             for (BlockPos pos : entry.getValue()) {
+                if (!mc.level.hasChunkAt(pos)) continue;
 
                 double dx = pos.getX() + 0.5 - mc.player.getX();
                 double dy = pos.getY() + 0.5 - mc.player.getY();
@@ -355,7 +333,7 @@ public class BlockEntitiesESP extends Module {
 
                 Block block = mc.level.getBlockState(pos).getBlock();
 
-                // Không render block đã bị thay đổi hoặc tắt setting.
+                // Skip replaced blocks or disabled targets.
                 if (!isEnabledTarget(block)) continue;
 
                 event.renderer.box(
@@ -368,9 +346,9 @@ public class BlockEntitiesESP extends Module {
 
                 if (tracers.get()) {
                     event.renderer.line(
-                        cameraPos.x,
-                        cameraPos.y,
-                        cameraPos.z,
+                        RenderUtils.center.x,
+                        RenderUtils.center.y,
+                        RenderUtils.center.z,
                         pos.getX() + 0.5,
                         pos.getY() + 0.5,
                         pos.getZ() + 0.5,
@@ -381,3 +359,4 @@ public class BlockEntitiesESP extends Module {
         }
     }
     }
+            
