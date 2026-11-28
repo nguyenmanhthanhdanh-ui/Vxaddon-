@@ -17,7 +17,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.BarrelBlock;
-
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
@@ -105,7 +104,7 @@ public class VxStorageESP extends Module {
     private final Setting<Boolean> tracers = sgRender.add(
         new BoolSetting.Builder()
             .name("tracers")
-            .defaultValue(false)
+            .defaultValue(true)
             .build()
     );
 
@@ -203,7 +202,6 @@ public class VxStorageESP extends Module {
     private final Set<BlockPos> checkedPositions = new HashSet<>();
 
     private BlockPos scanOrigin;
-
     private ChunkPos lastPlayerChunk;
 
     private int scanX;
@@ -245,20 +243,21 @@ public class VxStorageESP extends Module {
         scanZ = -distance.get();
 
         lastPlayerChunk = mc.player.chunkPosition();
-
         scanFinished = false;
     }
 
     private boolean isStorage(Block block) {
         if (chest.get() && block == Blocks.CHEST) return true;
 
-        if (trappedChest.get() &&
-            block == Blocks.TRAPPED_CHEST) return true;
+        if (trappedChest.get() && block == Blocks.TRAPPED_CHEST) {
+            return true;
+        }
 
         if (barrel.get() && block == Blocks.BARREL) return true;
 
-        if (enderChest.get() &&
-            block == Blocks.ENDER_CHEST) return true;
+        if (enderChest.get() && block == Blocks.ENDER_CHEST) {
+            return true;
+        }
 
         if (shulker.get() && block instanceof ShulkerBoxBlock) {
             return true;
@@ -360,10 +359,7 @@ public class VxStorageESP extends Module {
             state.getValue(BarrelBlock.OPEN);
     }
 
-    private SettingColor makeColor(
-        SettingColor base,
-        int alpha
-    ) {
+    private SettingColor makeColor(SettingColor base, int alpha) {
         return new SettingColor(
             base.r,
             base.g,
@@ -376,65 +372,58 @@ public class VxStorageESP extends Module {
     private void onRender(Render3DEvent event) {
         if (mc.level == null || mc.player == null) return;
 
+        // Lấy vị trí camera thật, hỗ trợ góc nhìn thứ nhất và F5.
         Vec3 cameraPos = mc.gameRenderer
             .getMainCamera()
             .getPosition();
 
         double fadeLimit = fadeDistance.get();
-
         double fadeLimitSquared = fadeLimit * fadeLimit;
 
-        for (Map.Entry<ChunkPos, Set<BlockPos>> entry :
-            cache.entrySet()) {
-
+        for (Map.Entry<ChunkPos, Set<BlockPos>> entry : cache.entrySet()) {
             ChunkPos chunk = entry.getKey();
 
             if (!mc.level.hasChunk(chunk.x, chunk.z)) continue;
 
             for (BlockPos pos : entry.getValue()) {
-
                 BlockState state = mc.level.getBlockState(pos);
                 Block block = state.getBlock();
 
-                // Block không còn là storage thì bỏ qua.
                 if (!isStorage(block)) continue;
 
-                double dx = pos.getX() + 0.5 - cameraPos.x;
-                double dy = pos.getY() + 0.5 - cameraPos.y;
-                double dz = pos.getZ() + 0.5 - cameraPos.z;
+                double centerX = pos.getX() + 0.5;
+                double centerY = pos.getY() + 0.5;
+                double centerZ = pos.getZ() + 0.5;
 
-                double distSquared =
-                    dx * dx + dy * dy + dz * dz;
+                double dx = centerX - cameraPos.x;
+                double dy = centerY - cameraPos.y;
+                double dz = centerZ - cameraPos.z;
+
+                double distSquared = dx * dx + dy * dy + dz * dz;
 
                 if (distSquared >= fadeLimitSquared) continue;
 
                 double dist = Math.sqrt(distSquared);
-
                 double fade = 1.0 - (dist / fadeLimit);
 
                 SettingColor base = getBlockColor(block);
 
-                // Màu riêng cho barrel đang mở.
                 if (highlightOpenedBarrels.get() &&
                     isOpenedBarrel(state)) {
                     base = openedColor.get();
                 }
 
-                int lineAlpha = (int) (base.a * fade);
-                int sideAlpha = (int) (
-                    fillOpacity.get() * fade
-                );
-
                 SettingColor line = makeColor(
                     base,
-                    lineAlpha
+                    (int) (base.a * fade)
                 );
 
                 SettingColor side = makeColor(
                     base,
-                    sideAlpha
+                    (int) (fillOpacity.get() * fade)
                 );
 
+                // ESP box
                 event.renderer.box(
                     pos,
                     side,
@@ -443,19 +432,19 @@ public class VxStorageESP extends Module {
                     0
                 );
 
+                // TRACER: từ camera thật đến tâm block.
                 if (tracers.get()) {
                     event.renderer.line(
                         cameraPos.x,
                         cameraPos.y,
                         cameraPos.z,
-                        pos.getX() + 0.5,
-                        pos.getY() + 0.5,
-                        pos.getZ() + 0.5,
-                        line
+                        centerX,
+                        centerY,
+                        centerZ,
+                        makeColor(base, 255)
                     );
                 }
             }
         }
     }
-    }
-            
+}
