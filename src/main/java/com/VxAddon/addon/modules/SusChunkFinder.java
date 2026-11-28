@@ -6,6 +6,7 @@ import com.vxaddon.addon.VxAddon;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
@@ -19,7 +20,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.network.chat.Component;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
@@ -225,7 +225,6 @@ public class SusChunkFinder extends Module {
     private boolean isMatureVine(LevelChunk chunk, BlockPos pos) {
         int length = 1;
 
-        // Kiểm tra Vine liên tục phía trên.
         for (int y = 1; y < MIN_VINE_LENGTH; y++) {
             BlockPos check = pos.above(y);
 
@@ -238,7 +237,6 @@ public class SusChunkFinder extends Module {
             length++;
         }
 
-        // Nếu chưa đủ, kiểm tra tiếp phía dưới.
         if (length < MIN_VINE_LENGTH) {
             for (int y = 1; y < MIN_VINE_LENGTH; y++) {
                 BlockPos check = pos.below(y);
@@ -261,7 +259,6 @@ public class SusChunkFinder extends Module {
         LevelChunk chunk,
         BlockPos pos
     ) {
-        // Chỉ nhận tinh thể Amethyst đã mọc hoàn chỉnh.
         if (amethyst.get() && block == Blocks.AMETHYST_CLUSTER) {
             return "Amethyst";
         }
@@ -278,7 +275,6 @@ public class SusChunkFinder extends Module {
             return "Kelp";
         }
 
-        // Chỉ nhận Vine thuộc chuỗi mọc dài ít nhất 3 block.
         if (vine.get() &&
             block == Blocks.VINE &&
             isMatureVine(chunk, pos)) {
@@ -333,7 +329,6 @@ public class SusChunkFinder extends Module {
         if (tickCounter < scanSpeed.get()) return;
 
         tickCounter = 0;
-
         refreshCounter++;
 
         if (refreshCounter >= 40) {
@@ -468,23 +463,21 @@ public class SusChunkFinder extends Module {
             opacity.get()
         );
 
-        Vec3 cameraPos = mc.gameRenderer
-            .getMainCamera()
-            .getPosition();
+        SettingColor tracerColor = new SettingColor(
+            base.r,
+            base.g,
+            base.b,
+            255
+        );
 
-        // Tất cả chunk dùng chung độ cao này.
         double y = showChunkHeight.get() + 0.02;
 
-        for (Map.Entry<ChunkPos, ChunkResult> entry :
-            cache.entrySet()) {
-
+        for (Map.Entry<ChunkPos, ChunkResult> entry : cache.entrySet()) {
             ChunkPos pos = entry.getKey();
             ChunkResult result = entry.getValue();
 
             if (result == null || result.firstPos == null) continue;
-
             if (result.score < sensitivity.get()) continue;
-
             if (!mc.level.hasChunk(pos.x, pos.z)) continue;
 
             double x1 = pos.getMinBlockX();
@@ -505,13 +498,13 @@ public class SusChunkFinder extends Module {
 
             if (tracers.get()) {
                 event.renderer.line(
-                    cameraPos.x,
-                    cameraPos.y,
-                    cameraPos.z,
+                    RenderUtils.center.x,
+                    RenderUtils.center.y,
+                    RenderUtils.center.z,
                     x1 + 8,
                     y,
                     z1 + 8,
-                    c
+                    tracerColor
                 );
             }
         }
@@ -550,5 +543,4 @@ public class SusChunkFinder extends Module {
             this.firstPos = firstPos;
         }
     }
-    }
-            
+}
