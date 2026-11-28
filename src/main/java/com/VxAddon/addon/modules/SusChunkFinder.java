@@ -209,12 +209,8 @@ public class SusChunkFinder extends Module {
 
         ChunkPos playerChunk = new ChunkPos(mc.player.blockPosition());
 
-        // Xóa toàn bộ dữ liệu của chunk đã đi quá xa.
         removeChunksOutsideRange(playerChunk);
-
-        // Chỉ đưa chunk đang được tải vào hàng đợi.
         queueNearbyChunks(playerChunk);
-
         scanLoadedChunks();
     }
 
@@ -228,7 +224,6 @@ public class SusChunkFinder extends Module {
     private void removeChunksOutsideRange(ChunkPos center) {
         cache.keySet().removeIf(chunk -> !isWithinRange(chunk, center));
         scannedChunks.removeIf(chunk -> !isWithinRange(chunk, center));
-
         scanQueue.removeIf(task -> !isWithinRange(task.chunk, center));
         queuedChunks.removeIf(chunk -> !isWithinRange(chunk, center));
     }
@@ -273,7 +268,6 @@ public class SusChunkFinder extends Module {
 
             if (task == null) break;
 
-            // Chunk đã unload: bỏ tác vụ, không giữ kết quả cũ.
             if (!isChunkLoaded(task.chunk)) {
                 queuedChunks.remove(task.chunk);
                 continue;
@@ -306,13 +300,10 @@ public class SusChunkFinder extends Module {
 
                 scannedChunks.add(task.chunk);
                 queuedChunks.remove(task.chunk);
+            } else if (isChunkLoaded(task.chunk)) {
+                scanQueue.add(task);
             } else {
-                // Nếu chunk unload trong lúc quét thì không lưu tác vụ dở.
-                if (isChunkLoaded(task.chunk)) {
-                    scanQueue.add(task);
-                } else {
-                    queuedChunks.remove(task.chunk);
-                }
+                queuedChunks.remove(task.chunk);
             }
         }
     }
@@ -386,7 +377,6 @@ public class SusChunkFinder extends Module {
             || block instanceof ShulkerBoxBlock;
     }
 
-    // Heuristic: tìm mật độ block nhân tạo bất thường trong chunk.
     private boolean isSuspiciousTerrain(BlockState state) {
         return state.is(Blocks.COBBLESTONE)
             || state.is(Blocks.MOSSY_COBBLESTONE)
@@ -424,7 +414,11 @@ public class SusChunkFinder extends Module {
         }
 
         if (feedbackSound.get() && mc.player != null) {
-            mc.player.playSound(SoundEvents.NOTE_BLOCK_PLING, 0.8f, 1.4f);
+            mc.player.playSound(
+                SoundEvents.NOTE_BLOCK_PLING.value(),
+                0.8f,
+                1.4f
+            );
         }
     }
 
@@ -446,7 +440,6 @@ public class SusChunkFinder extends Module {
         for (Map.Entry<ChunkPos, Detection> entry : cache.entrySet()) {
             ChunkPos chunk = entry.getKey();
 
-            // Không render chunk ngoài phạm vi hoặc đã unload.
             if (!isWithinRange(chunk, playerChunk)) continue;
             if (!isChunkLoaded(chunk)) continue;
 
@@ -542,7 +535,6 @@ public class SusChunkFinder extends Module {
 
                 if (entry.getValue() >= required) {
                     BlockPos pos = positions.get(entry.getKey());
-
                     result.found.add(new Found(entry.getKey(), pos));
                 }
             }
@@ -550,5 +542,5 @@ public class SusChunkFinder extends Module {
             return result;
         }
     }
-                                                               }
-                
+    }
+            
