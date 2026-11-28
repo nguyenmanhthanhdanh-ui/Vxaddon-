@@ -85,13 +85,14 @@ public class SusChunkFinder extends Module {
         .sliderMax(10)
         .build());
 
+    // Số block tối đa được quét mỗi tick.
     private final Setting<Integer> scanSpeed = sgGeneral.add(new IntSetting.Builder()
         .name("scan-speed")
-        .defaultValue(20)
-        .min(1)
-        .max(1000)
-        .sliderMin(1)
-        .sliderMax(200)
+        .defaultValue(24000)
+        .min(1000)
+        .max(100000)
+        .sliderMin(1000)
+        .sliderMax(50000)
         .build());
 
     private final Setting<Boolean> chatFeedback = sgGeneral.add(new BoolSetting.Builder()
@@ -148,7 +149,9 @@ public class SusChunkFinder extends Module {
 
     private final Map<ChunkPos, Detection> cache = new HashMap<>();
     private final Set<ChunkPos> scannedChunks = new HashSet<>();
-    private final Queue<ScanTask> scanQueue = new ArrayDeque<>();
+
+    // Dùng List để có thể sắp xếp chunk theo khoảng cách.
+    private final List<ScanTask> scanQueue = new ArrayList<>();
     private final Set<ChunkPos> queuedChunks = new HashSet<>();
 
     private net.minecraft.client.multiplayer.ClientLevel lastLevel;
@@ -210,8 +213,9 @@ public class SusChunkFinder extends Module {
         ChunkPos playerChunk = new ChunkPos(mc.player.blockPosition());
 
         removeChunksOutsideRange(playerChunk);
+        removeUnloadedChunks();
         queueNearbyChunks(playerChunk);
-        scanLoadedChunks();
+        scanLoadedChunks(playerChunk);
     }
 
     private boolean isWithinRange(ChunkPos chunk, ChunkPos center) {
@@ -221,15 +225,44 @@ public class SusChunkFinder extends Module {
             && Math.abs(chunk.z - center.z) <= range;
     }
 
+    private long getChunkDistanceSquared(ChunkPos a, ChunkPos b) {
+        long dx = (long) a.x - b.x;
+        long dz = (long) a.z - b.z;
+
+        return dx * dx + dz * dz;
+    }
+
     private void removeChunksOutsideRange(ChunkPos center) {
         cache.keySet().removeIf(chunk -> !isWithinRange(chunk, center));
         scannedChunks.removeIf(chunk -> !isWithinRange(chunk, center));
+
         scanQueue.removeIf(task -> !isWithinRange(task.chunk, center));
-        queuedChunks.removeIf(chunk -> !isWithinRange(chunk, center));
+
+        queuedChunks.clear();
+
+        for (ScanTask task : scanQueue) {
+            queuedChunks.add(task.chunk);
+        }
+    }
+
+    // Xóa dữ liệu của chunk Minecraft đã unload.
+    private void removeUnloadedChunks() {
+        cache.keySet().removeIf(chunk -> !isChunkLoaded(chunk));
+        scannedChunks.removeIf(chunk -> !isChunkLoaded(chunk));
+
+        scanQueue.removeIf(task -> !isChunkLoaded(task.chunk));
+
+        queuedChunks.clear();
+
+        for (ScanTask task : scanQueue) {
+            queuedChunks.add(task.chunk);
+        }
     }
 
     private void queueNearbyChunks(ChunkPos center) {
         int range = distance.get();
+
+        List<ChunkPos> candidates = new ArrayList<>();
 
         for (int x = -range; x <= range; x++) {
             for (int z = -range; z <= range; z++) {
@@ -239,14 +272,26 @@ public class SusChunkFinder extends Module {
                 if (queuedChunks.contains(pos)) continue;
                 if (!isChunkLoaded(pos)) continue;
 
-                scanQueue.add(new ScanTask(
-                    pos,
-                    mc.level.getMinY(),
-                    mc.level.getMaxY()
-                ));
-
-                queuedChunks.add(pos);
+                candidates.add(pos);
             }
+        }
+
+        // Chunk gần người chơi nhất được đưa vào hàng đợi trước.
+        candidates.sort(Comparator.comparingLong(
+            pos -> getChunkDistanceSquared(pos, center)
+        ));
+
+        for (ChunkPos pos : candidates) {
+            if (scannedChunks.contains(pos)) continue;
+            if (queuedChunks.contains(pos)) continue;
+
+            scanQueue.add(new ScanTask(
+                pos,
+                mc.level.getMinY(),
+                mc.level.getMaxY()
+            ));
+
+            queuedChunks.add(pos);
         }
     }
 
@@ -260,22 +305,27 @@ public class SusChunkFinder extends Module {
         ));
     }
 
-    private void scanLoadedChunks() {
-        int speed = scanSpeed.get();
+    private void scanLoadedChunks(ChunkPos playerChunk) {
+        int budget = scanSpeed.get();
 
-        for (int i = 0; i < speed && !scanQueue.isEmpty(); i++) {
-            ScanTask task = scanQueue.poll();
+        // Mỗi tick sắp xếp lại để chunk gần nhất được ưu tiên.
+        scanQueue.sort(Comparator.comparingLong(
+            task -> getChunkDistanceSquared(task.chunk, playerChunk)
+        ));
 
-            if (task == null) break;
+        while (budget > 0 && !scanQueue.isEmpty()) {
+            ScanTask task = scanQueue.remove(0);
 
             if (!isChunkLoaded(task.chunk)) {
                 queuedChunks.remove(task.chunk);
+                cache.remove(task.chunk);
+                scannedChunks.remove(task.chunk);
                 continue;
             }
 
             int processed = 0;
 
-            while (!task.finished() && processed < 256) {
+            while (!task.finished() && processed < budget) {
                 BlockPos pos = task.nextPosition();
 
                 if (pos != null) {
@@ -284,6 +334,8 @@ public class SusChunkFinder extends Module {
 
                 processed++;
             }
+
+            budget -= processed;
 
             if (task.finished()) {
                 Detection detection = task.finish(
@@ -300,10 +352,9 @@ public class SusChunkFinder extends Module {
 
                 scannedChunks.add(task.chunk);
                 queuedChunks.remove(task.chunk);
-            } else if (isChunkLoaded(task.chunk)) {
-                scanQueue.add(task);
             } else {
-                queuedChunks.remove(task.chunk);
+                // Tiếp tục chunk đang quét ở tick tiếp theo.
+                scanQueue.add(task);
             }
         }
     }
@@ -436,6 +487,7 @@ public class SusChunkFinder extends Module {
         );
 
         ChunkPos playerChunk = new ChunkPos(mc.player.blockPosition());
+        Vec3 camera = mc.gameRenderer.getMainCamera().getPosition();
 
         for (Map.Entry<ChunkPos, Detection> entry : cache.entrySet()) {
             ChunkPos chunk = entry.getKey();
@@ -456,8 +508,6 @@ public class SusChunkFinder extends Module {
             }
 
             if (tracers.get()) {
-                Vec3 camera = mc.gameRenderer.getMainCamera().getPosition();
-
                 event.renderer.line(
                     camera.x, camera.y, camera.z,
                     x + 8, y, z + 8,
