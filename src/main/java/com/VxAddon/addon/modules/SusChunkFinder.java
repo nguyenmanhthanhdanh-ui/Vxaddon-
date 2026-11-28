@@ -1,3 +1,4 @@
+
 package com.vxaddon.addon.modules;
 
 import com.vxaddon.addon.VxAddon;
@@ -59,6 +60,7 @@ public class SusChunkFinder extends Module {
     private final Setting<Boolean> amethyst = sgDetect.add(
         new BoolSetting.Builder()
             .name("amethyst")
+            .description("Detects fully grown Amethyst Clusters only.")
             .defaultValue(true)
             .build()
     );
@@ -80,6 +82,7 @@ public class SusChunkFinder extends Module {
     private final Setting<Boolean> vine = sgDetect.add(
         new BoolSetting.Builder()
             .name("vine")
+            .description("Detects vertical Vine chains at least 3 blocks long.")
             .defaultValue(true)
             .build()
     );
@@ -102,6 +105,18 @@ public class SusChunkFinder extends Module {
         new BoolSetting.Builder()
             .name("show-chunk")
             .defaultValue(true)
+            .build()
+    );
+
+    private final Setting<Integer> showChunkHeight = sgRender.add(
+        new IntSetting.Builder()
+            .name("show-chunk-height")
+            .description("Height of every highlighted chunk plane.")
+            .defaultValue(64)
+            .min(-64)
+            .max(320)
+            .sliderMin(-64)
+            .sliderMax(320)
             .build()
     );
 
@@ -131,11 +146,10 @@ public class SusChunkFinder extends Module {
     );
 
     private static final int BLOCKS_PER_BATCH = 4096;
+    private static final int MIN_VINE_LENGTH = 3;
 
-    // Cache kết quả đã quét, kể cả chunk không đáng nghi.
     private final Map<ChunkPos, ChunkResult> cache = new HashMap<>();
     private final Set<ChunkPos> scannedChunks = new HashSet<>();
-
     private final Queue<ChunkScan> scanQueue = new ArrayDeque<>();
 
     private ChunkScan currentScan;
@@ -166,7 +180,6 @@ public class SusChunkFinder extends Module {
 
     @Override
     public void onDeactivate() {
-        // Giữ cache trong phiên chơi hiện tại.
         scanQueue.clear();
         currentScan = null;
         lastPlayerChunk = null;
@@ -209,10 +222,47 @@ public class SusChunkFinder extends Module {
         }
     }
 
-    private String getTargetName(Block block) {
-        if (amethyst.get() &&
-            (block == Blocks.AMETHYST_CLUSTER ||
-             block == Blocks.BUDDING_AMETHYST)) {
+    private boolean isMatureVine(LevelChunk chunk, BlockPos pos) {
+        int length = 1;
+
+        // Kiểm tra Vine liên tục phía trên.
+        for (int y = 1; y < MIN_VINE_LENGTH; y++) {
+            BlockPos check = pos.above(y);
+
+            if (check.getY() > maxScanY) break;
+
+            if (chunk.getBlockState(check).getBlock() != Blocks.VINE) {
+                break;
+            }
+
+            length++;
+        }
+
+        // Nếu chưa đủ, kiểm tra tiếp phía dưới.
+        if (length < MIN_VINE_LENGTH) {
+            for (int y = 1; y < MIN_VINE_LENGTH; y++) {
+                BlockPos check = pos.below(y);
+
+                if (check.getY() < minScanY) break;
+
+                if (chunk.getBlockState(check).getBlock() != Blocks.VINE) {
+                    break;
+                }
+
+                length++;
+            }
+        }
+
+        return length >= MIN_VINE_LENGTH;
+    }
+
+    private String getTargetName(
+        Block block,
+        LevelChunk chunk,
+        BlockPos pos
+    ) {
+        // Chỉ nhận tinh thể Amethyst đã mọc hoàn chỉnh.
+        if (amethyst.get() && block == Blocks.AMETHYST_CLUSTER) {
             return "Amethyst";
         }
 
@@ -228,7 +278,10 @@ public class SusChunkFinder extends Module {
             return "Kelp";
         }
 
-        if (vine.get() && block == Blocks.VINE) {
+        // Chỉ nhận Vine thuộc chuỗi mọc dài ít nhất 3 block.
+        if (vine.get() &&
+            block == Blocks.VINE &&
+            isMatureVine(chunk, pos)) {
             return "Vine";
         }
 
@@ -263,7 +316,6 @@ public class SusChunkFinder extends Module {
     private void onTick(TickEvent.Pre event) {
         if (mc.level == null || mc.player == null) return;
 
-        // Xóa cache khi chuyển sang thế giới khác.
         if (cachedLevel != mc.level) {
             cachedLevel = mc.level;
             clearCache();
@@ -282,7 +334,6 @@ public class SusChunkFinder extends Module {
 
         tickCounter = 0;
 
-        // Kiểm tra lại các chunk mới tải sau mỗi khoảng thời gian.
         refreshCounter++;
 
         if (refreshCounter >= 40) {
@@ -342,7 +393,11 @@ public class SusChunkFinder extends Module {
                     .getBlockState(pos)
                     .getBlock();
 
-                String targetName = getTargetName(block);
+                String targetName = getTargetName(
+                    block,
+                    currentScan.chunk,
+                    pos
+                );
 
                 if (targetName != null) {
                     currentScan.score++;
@@ -417,6 +472,9 @@ public class SusChunkFinder extends Module {
             .getMainCamera()
             .getPosition();
 
+        // Tất cả chunk dùng chung độ cao này.
+        double y = showChunkHeight.get() + 0.02;
+
         for (Map.Entry<ChunkPos, ChunkResult> entry :
             cache.entrySet()) {
 
@@ -427,7 +485,6 @@ public class SusChunkFinder extends Module {
 
             if (result.score < sensitivity.get()) continue;
 
-            // Không render chunk đã unload.
             if (!mc.level.hasChunk(pos.x, pos.z)) continue;
 
             double x1 = pos.getMinBlockX();
@@ -436,9 +493,6 @@ public class SusChunkFinder extends Module {
             double x2 = x1 + 16;
             double z2 = z1 + 16;
 
-            double y = result.firstPos.getY() + 0.02;
-
-            // Mặt phẳng vuông nằm ngang.
             if (showChunk.get()) {
                 event.renderer.box(
                     x1, y, z1,
@@ -449,7 +503,6 @@ public class SusChunkFinder extends Module {
                 );
             }
 
-            // Tracer bắt đầu từ camera thật.
             if (tracers.get()) {
                 event.renderer.line(
                     cameraPos.x,
@@ -497,4 +550,5 @@ public class SusChunkFinder extends Module {
             this.firstPos = firstPos;
         }
     }
-                }
+    }
+            
