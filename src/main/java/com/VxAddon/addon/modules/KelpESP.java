@@ -17,6 +17,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.KelpBlock;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
@@ -31,6 +33,7 @@ public class KelpESP extends Module {
             .defaultValue(1)
             .min(1)
             .max(1000)
+            .sliderMax(1000)
             .build()
     );
 
@@ -40,12 +43,31 @@ public class KelpESP extends Module {
             .defaultValue(1000)
             .min(1)
             .max(1000)
+            .sliderMax(1000)
+            .build()
+    );
+
+    private final Setting<Integer> scanTick = sgGeneral.add(
+        new IntSetting.Builder()
+            .name("scan-tick")
+            .description("Ticks between scan batches. Lower is faster.")
+            .defaultValue(5)
+            .min(1)
+            .max(20)
+            .sliderMax(20)
             .build()
     );
 
     private final Setting<Boolean> chatFeedback = sgGeneral.add(
         new BoolSetting.Builder()
             .name("chat-feedback")
+            .defaultValue(true)
+            .build()
+    );
+
+    private final Setting<Boolean> showChunk = sgRender.add(
+        new BoolSetting.Builder()
+            .name("show-chunk")
             .defaultValue(true)
             .build()
     );
@@ -64,6 +86,17 @@ public class KelpESP extends Module {
             .build()
     );
 
+    private final Setting<Integer> opacity = sgRender.add(
+        new IntSetting.Builder()
+            .name("opacity")
+            .description("Controls highlight transparency.")
+            .defaultValue(60)
+            .min(0)
+            .max(255)
+            .sliderMax(255)
+            .build()
+    );
+
     private final Setting<SettingColor> color = sgRender.add(
         new ColorSetting.Builder()
             .name("color")
@@ -71,15 +104,24 @@ public class KelpESP extends Module {
             .build()
     );
 
-    private static final int SCAN_TICK = 5;
-    private static final int BLOCKS_PER_TICK = 4096;
+    private static final int BLOCKS_PER_BATCH = 4096;
 
-    private final Map<ChunkPos, Integer> foundChunks = new HashMap<>();
+    // Cache kết quả, giữ lại khi tắt/bật module.
+    private final Map<ChunkPos, ChunkResult> cache = new HashMap<>();
+
+    // Những chunk đã quét xong.
     private final Set<ChunkPos> scannedChunks = new HashSet<>();
+
+    // Những chunk đang chờ quét.
+    private final Set<ChunkPos> queuedChunks = new HashSet<>();
+
     private final Queue<ChunkPos> scanQueue = new ArrayDeque<>();
 
-    private ChunkPos lastPlayerChunk;
     private ChunkScan currentScan;
+
+    private ChunkPos lastPlayerChunk;
+
+    private ClientLevel cachedLevel;
 
     private int tickCounter;
 
@@ -93,17 +135,25 @@ public class KelpESP extends Module {
 
     @Override
     public void onActivate() {
-        resetScanner();
+        currentScan = null;
+        scanQueue.clear();
+        queuedChunks.clear();
+        lastPlayerChunk = null;
+        tickCounter = 0;
     }
 
     @Override
     public void onDeactivate() {
-        resetScanner();
+        currentScan = null;
+        scanQueue.clear();
+        queuedChunks.clear();
+        lastPlayerChunk = null;
     }
 
-    private void resetScanner() {
-        foundChunks.clear();
+    private void clearCache() {
+        cache.clear();
         scannedChunks.clear();
+        queuedChunks.clear();
         scanQueue.clear();
 
         currentScan = null;
@@ -113,21 +163,50 @@ public class KelpESP extends Module {
 
     private void addChunk(ChunkPos chunk) {
         if (scannedChunks.contains(chunk)) return;
-
-        if (scanQueue.contains(chunk)) return;
+        if (queuedChunks.contains(chunk)) return;
 
         scanQueue.add(chunk);
+        queuedChunks.add(chunk);
+    }
+
+    private void startNextScan() {
+        if (mc.level == null) return;
+
+        while (!scanQueue.isEmpty()) {
+            ChunkPos next = scanQueue.poll();
+            queuedChunks.remove(next);
+
+            if (scannedChunks.contains(next)) continue;
+
+            LevelChunk chunk = mc.level.getChunkSource()
+                .getChunk(next.x, next.z, false);
+
+            if (chunk == null) continue;
+
+            currentScan = new ChunkScan(
+                next,
+                chunk,
+                mc.level.getMinY(),
+                mc.level.getMaxY()
+            );
+
+            return;
+        }
     }
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (mc.level == null || mc.player == null) {
-            resetScanner();
-            return;
+        if (mc.level == null || mc.player == null) return;
+
+        // Chuyển thế giới thì xóa cache cũ.
+        if (cachedLevel != mc.level) {
+            cachedLevel = (ClientLevel) mc.level;
+            clearCache();
         }
 
         ChunkPos playerChunk = mc.player.chunkPosition();
 
+        // Chỉ thêm chunk khi người chơi bước vào chunk mới.
         if (lastPlayerChunk == null ||
             !lastPlayerChunk.equals(playerChunk)) {
 
@@ -137,30 +216,17 @@ public class KelpESP extends Module {
 
         tickCounter++;
 
+        if (tickCounter < scanTick.get()) return;
+
+        tickCounter = 0;
+
         if (currentScan == null) {
-            if (tickCounter < SCAN_TICK) return;
+            startNextScan();
 
-            tickCounter = 0;
-
-            ChunkPos next = scanQueue.poll();
-
-            if (next == null) return;
-
-            LevelChunk chunk = mc.level.getChunkSource()
-                .getChunk(next.x, next.z, false);
-
-            if (chunk == null) return;
-
-            scannedChunks.add(next);
-
-            currentScan = new ChunkScan(
-                next,
-                mc.level.getMinY(),
-                mc.level.getMaxY()
-            );
+            if (currentScan == null) return;
         }
 
-        int budget = BLOCKS_PER_TICK;
+        int budget = BLOCKS_PER_BATCH;
 
         BlockPos.MutableBlockPos pos =
             new BlockPos.MutableBlockPos();
@@ -175,17 +241,22 @@ public class KelpESP extends Module {
             int y = index / 256;
 
             pos.set(
-                currentScan.chunk.x * 16 + x,
+                currentScan.chunkPos.x * 16 + x,
                 currentScan.minY + y,
-                currentScan.chunk.z * 16 + z
+                currentScan.chunkPos.z * 16 + z
             );
 
-            var state = mc.level.getBlockState(pos);
+            var state = currentScan.chunk.getBlockState(pos);
 
-            // Only count mature kelp tips, not kelp plant stems.
+            // Chỉ đếm kelp trưởng thành.
             if (state.is(Blocks.KELP) &&
                 state.getValue(KelpBlock.AGE) >= 25) {
+
                 currentScan.count++;
+
+                if (currentScan.firstKelpPos == null) {
+                    currentScan.firstKelpPos = pos.immutable();
+                }
             }
 
             budget--;
@@ -197,13 +268,22 @@ public class KelpESP extends Module {
     }
 
     private void finishScan() {
-        ChunkPos chunk = currentScan.chunk;
+        if (currentScan == null) return;
+
+        ChunkPos chunk = currentScan.chunkPos;
         int count = currentScan.count;
+
+        scannedChunks.add(chunk);
 
         if (count >= minKelp.get() &&
             count <= maxKelp.get()) {
 
-            foundChunks.put(chunk, count);
+            ChunkResult result = new ChunkResult(
+                count,
+                currentScan.firstKelpPos
+            );
+
+            cache.put(chunk, result);
 
             if (chatFeedback.get() && mc.player != null) {
                 mc.player.displayClientMessage(
@@ -216,7 +296,10 @@ public class KelpESP extends Module {
                 );
             }
         } else {
-            foundChunks.remove(chunk);
+            cache.put(
+                chunk,
+                new ChunkResult(count, null)
+            );
         }
 
         currentScan = null;
@@ -226,28 +309,60 @@ public class KelpESP extends Module {
     private void onRender(Render3DEvent event) {
         if (mc.level == null || mc.player == null) return;
 
-        SettingColor c = color.get();
+        SettingColor base = color.get();
 
-        for (ChunkPos chunk : foundChunks.keySet()) {
+        SettingColor c = new SettingColor(
+            base.r,
+            base.g,
+            base.b,
+            opacity.get()
+        );
+
+        Vec3 cameraPos = mc.gameRenderer
+            .getMainCamera()
+            .getPosition();
+
+        for (Map.Entry<ChunkPos, ChunkResult> entry :
+            cache.entrySet()) {
+
+            ChunkPos chunk = entry.getKey();
+            ChunkResult result = entry.getValue();
+
+            if (result == null ||
+                result.firstKelpPos == null) continue;
+
+            if (result.count < minKelp.get() ||
+                result.count > maxKelp.get()) continue;
+
+            // Không hiển thị chunk đã unload.
+            if (!mc.level.hasChunk(chunk.x, chunk.z)) continue;
+
             double x1 = chunk.getMinBlockX();
             double z1 = chunk.getMinBlockZ();
 
             double x2 = x1 + 16;
             double z2 = z1 + 16;
 
-            event.renderer.box(
-                x1, mc.level.getMinY(), z1,
-                x2, mc.level.getMaxY(), z2,
-                c, c, shapeMode.get(), 0
-            );
+            // Mặt phẳng ngang tại độ cao kelp tìm thấy.
+            double y = result.firstKelpPos.getY() + 0.02;
+
+            if (showChunk.get()) {
+                event.renderer.box(
+                    x1, y, z1,
+                    x2, y + 0.02, z2,
+                    c, c,
+                    shapeMode.get(),
+                    0
+                );
+            }
 
             if (tracers.get()) {
                 event.renderer.line(
-                    mc.player.getX(),
-                    mc.player.getEyeY(),
-                    mc.player.getZ(),
+                    cameraPos.x,
+                    cameraPos.y,
+                    cameraPos.z,
                     x1 + 8,
-                    mc.player.getY(),
+                    y,
                     z1 + 8,
                     c
                 );
@@ -256,17 +371,37 @@ public class KelpESP extends Module {
     }
 
     private static class ChunkScan {
-        private final ChunkPos chunk;
+        private final ChunkPos chunkPos;
+        private final LevelChunk chunk;
+
         private final int minY;
         private final int totalBlocks;
 
         private int index;
         private int count;
 
-        private ChunkScan(ChunkPos chunk, int minY, int maxY) {
+        private BlockPos firstKelpPos;
+
+        private ChunkScan(
+            ChunkPos chunkPos,
+            LevelChunk chunk,
+            int minY,
+            int maxY
+        ) {
+            this.chunkPos = chunkPos;
             this.chunk = chunk;
             this.minY = minY;
             this.totalBlocks = 16 * 16 * (maxY - minY);
         }
     }
+
+    private static class ChunkResult {
+        private final int count;
+        private final BlockPos firstKelpPos;
+
+        private ChunkResult(int count, BlockPos firstKelpPos) {
+            this.count = count;
+            this.firstKelpPos = firstKelpPos;
+        }
     }
+        }
