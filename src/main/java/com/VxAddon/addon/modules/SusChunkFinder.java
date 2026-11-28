@@ -1,498 +1,372 @@
-
 package com.vxaddon.addon.modules;
 
 import com.vxaddon.addon.VxAddon;
 
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
+import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
-import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.meteorclient.utils.render.RenderUtils;
-import meteordevelopment.meteorclient.events.world.TickEvent;
-import meteordevelopment.meteorclient.events.render.Render3DEvent;
-import meteordevelopment.meteorclient.renderer.ShapeMode;
+import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.BeehiveBlock;
+import net.minecraft.world.level.block.KelpBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
-import net.minecraft.network.chat.Component;
-import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.*;
 
 public class SusChunkFinder extends Module {
-
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
-    private final SettingGroup sgDetect = settings.createGroup("Detection");
     private final SettingGroup sgRender = settings.createGroup("Render");
 
-    private final Setting<Integer> distance = sgGeneral.add(
-        new IntSetting.Builder()
-            .name("distance")
-            .defaultValue(5)
-            .min(1)
-            .max(15)
-            .build()
+    // General
+    private final Setting<Boolean> amethyst = sgGeneral.add(new BoolSetting.Builder()
+        .name("amethyst")
+        .defaultValue(true)
+        .build()
     );
 
-    private final Setting<Integer> scanSpeed = sgGeneral.add(
-        new IntSetting.Builder()
-            .name("scan-speed")
-            .description("Ticks between scan batches. Lower is faster.")
-            .defaultValue(5)
-            .min(1)
-            .max(20)
-            .build()
+    private final Setting<Boolean> beeNest = sgGeneral.add(new BoolSetting.Builder()
+        .name("bee-nest")
+        .defaultValue(false)
+        .build()
     );
 
-    private final Setting<Integer> sensitivity = sgGeneral.add(
-        new IntSetting.Builder()
-            .name("sensitivity")
-            .defaultValue(4)
-            .min(1)
-            .max(20)
-            .build()
+    private final Setting<Boolean> kelp = sgGeneral.add(new BoolSetting.Builder()
+        .name("kelp")
+        .defaultValue(false)
+        .build()
     );
 
-    private final Setting<Boolean> amethyst = sgDetect.add(
-        new BoolSetting.Builder()
-            .name("amethyst")
-            .description("Detects fully grown Amethyst Clusters only.")
-            .defaultValue(true)
-            .build()
+    private final Setting<Boolean> vine = sgGeneral.add(new BoolSetting.Builder()
+        .name("vine")
+        .defaultValue(true)
+        .build()
     );
 
-    private final Setting<Boolean> beeNest = sgDetect.add(
-        new BoolSetting.Builder()
-            .name("bee-nest")
-            .defaultValue(false)
-            .build()
+    private final Setting<Boolean> storage = sgGeneral.add(new BoolSetting.Builder()
+        .name("storage")
+        .defaultValue(false)
+        .build()
     );
 
-    private final Setting<Boolean> kelp = sgDetect.add(
-        new BoolSetting.Builder()
-            .name("kelp")
-            .defaultValue(false)
-            .build()
+    private final Setting<Integer> distance = sgGeneral.add(new IntSetting.Builder()
+        .name("distance")
+        .defaultValue(5)
+        .min(1)
+        .max(15)
+        .sliderMin(1)
+        .sliderMax(15)
+        .build()
     );
 
-    private final Setting<Boolean> vine = sgDetect.add(
-        new BoolSetting.Builder()
-            .name("vine")
-            .description("Detects vertical Vine chains at least 3 blocks long.")
-            .defaultValue(true)
-            .build()
+    private final Setting<Integer> sensitivity = sgGeneral.add(new IntSetting.Builder()
+        .name("sensitivity")
+        .defaultValue(4)
+        .min(1)
+        .max(20)
+        .sliderMin(1)
+        .sliderMax(20)
+        .build()
     );
 
-    private final Setting<Boolean> storage = sgDetect.add(
-        new BoolSetting.Builder()
-            .name("storage")
-            .defaultValue(false)
-            .build()
+    private final Setting<Integer> scanSpeed = sgGeneral.add(new IntSetting.Builder()
+        .name("scan-speed")
+        .defaultValue(5)
+        .min(1)
+        .max(20)
+        .sliderMin(1)
+        .sliderMax(20)
+        .build()
     );
 
-    private final Setting<Boolean> chatFeedback = sgGeneral.add(
-        new BoolSetting.Builder()
-            .name("chat-feedback")
-            .defaultValue(false)
-            .build()
+    private final Setting<Boolean> chatFeedback = sgGeneral.add(new BoolSetting.Builder()
+        .name("chat-feedback")
+        .defaultValue(true)
+        .build()
     );
 
-    private final Setting<Boolean> showChunk = sgRender.add(
-        new BoolSetting.Builder()
-            .name("show-chunk")
-            .defaultValue(true)
-            .build()
+    // Render
+    private final Setting<Boolean> showChunk = sgRender.add(new BoolSetting.Builder()
+        .name("show-chunk")
+        .defaultValue(true)
+        .build()
     );
 
-    private final Setting<Integer> showChunkHeight = sgRender.add(
-        new IntSetting.Builder()
-            .name("show-chunk-height")
-            .description("Height of every highlighted chunk plane.")
-            .defaultValue(64)
-            .min(-64)
-            .max(320)
-            .sliderMin(-64)
-            .sliderMax(320)
-            .build()
+    private final Setting<Integer> showChunkHeight = sgRender.add(new IntSetting.Builder()
+        .name("show-chunk-height")
+        .defaultValue(64)
+        .min(-64)
+        .max(320)
+        .sliderMin(-64)
+        .sliderMax(320)
+        .visible(showChunk::get)
+        .build()
     );
 
-    private final Setting<Boolean> tracers = sgRender.add(
-        new BoolSetting.Builder()
-            .name("tracers")
-            .defaultValue(false)
-            .build()
+    private final Setting<Boolean> tracers = sgRender.add(new BoolSetting.Builder()
+        .name("tracers")
+        .defaultValue(true)
+        .build()
     );
 
-    private final Setting<Integer> opacity = sgRender.add(
-        new IntSetting.Builder()
-            .name("opacity")
-            .description("Controls the transparency of the chunk highlight.")
-            .defaultValue(60)
-            .min(0)
-            .max(255)
-            .sliderMax(255)
-            .build()
+    private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
+        .name("shape-mode")
+        .defaultValue(ShapeMode.Both)
+        .visible(showChunk::get)
+        .build()
     );
 
-    private final Setting<SettingColor> color = sgRender.add(
-        new ColorSetting.Builder()
-            .name("color")
-            .defaultValue(new SettingColor(255, 25, 25, 255))
-            .build()
+    private final Setting<Integer> opacity = sgRender.add(new IntSetting.Builder()
+        .name("opacity")
+        .defaultValue(60)
+        .min(0)
+        .max(255)
+        .sliderMin(0)
+        .sliderMax(255)
+        .visible(showChunk::get)
+        .build()
     );
 
-    private static final int BLOCKS_PER_BATCH = 4096;
-    private static final int MIN_VINE_LENGTH = 3;
+    private final Setting<SettingColor> color = sgRender.add(new ColorSetting.Builder()
+        .name("color")
+        .defaultValue(new SettingColor(255, 0, 0, 255))
+        .build()
+    );
 
-    private final Map<ChunkPos, ChunkResult> cache = new HashMap<>();
+    // Cache
+    private final Map<ChunkPos, Detection> cache = new HashMap<>();
     private final Set<ChunkPos> scannedChunks = new HashSet<>();
-    private final Queue<ChunkScan> scanQueue = new ArrayDeque<>();
+    private final Queue<ScanTask> scanQueue = new ArrayDeque<>();
 
-    private ChunkScan currentScan;
+    private net.minecraft.client.multiplayer.ClientLevel lastLevel;
     private ChunkPos lastPlayerChunk;
-    private ClientLevel cachedLevel;
-
-    private int tickCounter;
-    private int refreshCounter;
-
-    private int minScanY;
-    private int maxScanY;
+    private int lastDistance = -1;
 
     public SusChunkFinder() {
-        super(
-            VxAddon.CATEGORY,
-            "sus-chunk-finder",
-            "Highlights loaded chunks with unusual block patterns."
-        );
+        super(VxAddon.CATEGORY, "sus-chunk-finder", "Finds suspicious chunks.");
     }
 
     @Override
     public void onActivate() {
-        scanQueue.clear();
-        currentScan = null;
+        lastLevel = mc.level;
         lastPlayerChunk = null;
-        tickCounter = 0;
+        lastDistance = -1;
     }
 
     @Override
     public void onDeactivate() {
-        scanQueue.clear();
-        currentScan = null;
-        lastPlayerChunk = null;
+        // Giữ cache khi tắt module.
     }
 
-    private void clearCache() {
-        cache.clear();
-        scannedChunks.clear();
-        scanQueue.clear();
-        currentScan = null;
-        lastPlayerChunk = null;
-    }
-
-    private void buildQueue() {
-        scanQueue.clear();
-        currentScan = null;
-
+    @EventHandler
+    private void onTick(TickEvent.Post event) {
         if (mc.player == null || mc.level == null) return;
 
-        ChunkPos center = mc.player.chunkPosition();
-        lastPlayerChunk = center;
+        if (lastLevel != mc.level) {
+            cache.clear();
+            scannedChunks.clear();
+            scanQueue.clear();
+            lastLevel = mc.level;
+            lastPlayerChunk = null;
+        }
 
-        int radius = distance.get();
+        ChunkPos playerChunk = new ChunkPos(mc.player.blockPosition());
 
-        minScanY = Math.max(-60, mc.level.getMinY());
-        maxScanY = mc.level.getMaxY() - 1;
+        if (lastPlayerChunk == null
+            || !lastPlayerChunk.equals(playerChunk)
+            || lastDistance != distance.get()) {
 
-        for (int x = -radius; x <= radius; x++) {
-            for (int z = -radius; z <= radius; z++) {
+            lastPlayerChunk = playerChunk;
+            lastDistance = distance.get();
 
-                ChunkPos pos = new ChunkPos(
+            queueNearbyChunks(playerChunk);
+        }
+
+        scanLoadedChunks();
+    }
+
+    private void queueNearbyChunks(ChunkPos center) {
+        int range = distance.get();
+
+        for (int x = -range; x <= range; x++) {
+            for (int z = -range; z <= range; z++) {
+                if (x * x + z * z > range * range) continue;
+
+                ChunkPos chunk = new ChunkPos(
                     center.x + x,
                     center.z + z
                 );
 
-                if (scannedChunks.contains(pos)) continue;
+                if (scannedChunks.contains(chunk)) continue;
+                if (!isChunkLoaded(chunk)) continue;
 
-                scanQueue.add(new ChunkScan(pos.x, pos.z));
-            }
-        }
-    }
+                boolean queued = false;
 
-    private boolean isMatureVine(LevelChunk chunk, BlockPos pos) {
-        int length = 1;
-
-        for (int y = 1; y < MIN_VINE_LENGTH; y++) {
-            BlockPos check = pos.above(y);
-
-            if (check.getY() > maxScanY) break;
-
-            if (chunk.getBlockState(check).getBlock() != Blocks.VINE) {
-                break;
-            }
-
-            length++;
-        }
-
-        if (length < MIN_VINE_LENGTH) {
-            for (int y = 1; y < MIN_VINE_LENGTH; y++) {
-                BlockPos check = pos.below(y);
-
-                if (check.getY() < minScanY) break;
-
-                if (chunk.getBlockState(check).getBlock() != Blocks.VINE) {
-                    break;
-                }
-
-                length++;
-            }
-        }
-
-        return length >= MIN_VINE_LENGTH;
-    }
-
-    private String getTargetName(
-        Block block,
-        LevelChunk chunk,
-        BlockPos pos
-    ) {
-        if (amethyst.get() && block == Blocks.AMETHYST_CLUSTER) {
-            return "Amethyst";
-        }
-
-        if (beeNest.get() &&
-            (block == Blocks.BEE_NEST ||
-             block == Blocks.BEEHIVE)) {
-            return "Bee Nest";
-        }
-
-        if (kelp.get() &&
-            (block == Blocks.KELP ||
-             block == Blocks.KELP_PLANT)) {
-            return "Kelp";
-        }
-
-        if (vine.get() &&
-            block == Blocks.VINE &&
-            isMatureVine(chunk, pos)) {
-            return "Vine";
-        }
-
-        if (storage.get() &&
-            (block == Blocks.CHEST ||
-             block == Blocks.TRAPPED_CHEST ||
-             block == Blocks.BARREL ||
-             block == Blocks.ENDER_CHEST ||
-             block instanceof ShulkerBoxBlock)) {
-            return "Storage";
-        }
-
-        return null;
-    }
-
-    private void sendFeedback(String name, BlockPos pos) {
-        if (!chatFeedback.get() || mc.player == null) return;
-
-        mc.player.displayClientMessage(
-            Component.literal(
-                "[VX SusChunkFinder]\n" +
-                "Phát hiện: " + name + "\n" +
-                "Tọa độ: X: " + pos.getX() +
-                ", Y: " + pos.getY() +
-                ", Z: " + pos.getZ()
-            ),
-            false
-        );
-    }
-
-    @EventHandler
-    private void onTick(TickEvent.Pre event) {
-        if (mc.level == null || mc.player == null) return;
-
-        if (cachedLevel != mc.level) {
-            cachedLevel = mc.level;
-            clearCache();
-        }
-
-        ChunkPos playerChunk = mc.player.chunkPosition();
-
-        if (lastPlayerChunk == null ||
-            !lastPlayerChunk.equals(playerChunk)) {
-            buildQueue();
-        }
-
-        tickCounter++;
-
-        if (tickCounter < scanSpeed.get()) return;
-
-        tickCounter = 0;
-        refreshCounter++;
-
-        if (refreshCounter >= 40) {
-            refreshCounter = 0;
-
-            if (currentScan == null && scanQueue.isEmpty()) {
-                buildQueue();
-            }
-        }
-
-        int budget = BLOCKS_PER_BATCH;
-
-        while (budget > 0) {
-
-            if (currentScan == null) {
-                currentScan = scanQueue.poll();
-
-                if (currentScan == null) return;
-
-                LevelChunk chunk = mc.level.getChunkSource()
-                    .getChunk(
-                        currentScan.x,
-                        currentScan.z,
-                        false
-                    );
-
-                if (chunk == null) {
-                    currentScan = null;
-                    continue;
-                }
-
-                currentScan.chunk = chunk;
-            }
-
-            int totalBlocks = 16 * 16 *
-                (maxScanY - minScanY + 1);
-
-            BlockPos.MutableBlockPos pos =
-                new BlockPos.MutableBlockPos();
-
-            while (budget > 0 &&
-                   currentScan.index < totalBlocks) {
-
-                int index = currentScan.index++;
-
-                int x = index % 16;
-                int z = (index / 16) % 16;
-                int y = index / 256;
-
-                pos.set(
-                    currentScan.x * 16 + x,
-                    minScanY + y,
-                    currentScan.z * 16 + z
-                );
-
-                Block block = currentScan.chunk
-                    .getBlockState(pos)
-                    .getBlock();
-
-                String targetName = getTargetName(
-                    block,
-                    currentScan.chunk,
-                    pos
-                );
-
-                if (targetName != null) {
-                    currentScan.score++;
-
-                    if (currentScan.firstName == null) {
-                        currentScan.firstName = targetName;
-                        currentScan.firstPos = pos.immutable();
+                for (ScanTask task : scanQueue) {
+                    if (task.chunk.equals(chunk)) {
+                        queued = true;
+                        break;
                     }
                 }
 
+                if (!queued) scanQueue.add(new ScanTask(chunk));
+            }
+        }
+    }
+
+    private boolean isChunkLoaded(ChunkPos chunk) {
+        return mc.level != null
+            && mc.level.hasChunkAt(new BlockPos(
+                chunk.getMinBlockX(),
+                mc.level.getMinY(),
+                chunk.getMinBlockZ()
+            ));
+    }
+
+    private void scanLoadedChunks() {
+        int budget = scanSpeed.get() * 256;
+
+        while (budget > 0 && !scanQueue.isEmpty()) {
+            ScanTask task = scanQueue.peek();
+
+            if (!isChunkLoaded(task.chunk)) {
+                scanQueue.poll();
+                continue;
+            }
+
+            while (budget > 0 && !task.finished()) {
+                BlockPos pos = task.nextPosition();
+                if (pos == null) break;
+
+                checkBlock(task, pos);
                 budget--;
             }
 
-            if (currentScan.index >= totalBlocks) {
+            if (task.finished()) {
+                scannedChunks.add(task.chunk);
 
-                ChunkPos finished = new ChunkPos(
-                    currentScan.x,
-                    currentScan.z
-                );
+                Detection detection = task.finish(sensitivity.get());
 
-                scannedChunks.add(finished);
-
-                boolean suspicious =
-                    currentScan.score >= sensitivity.get();
-
-                if (suspicious) {
-                    ChunkResult result = new ChunkResult(
-                        currentScan.score,
-                        currentScan.firstName,
-                        currentScan.firstPos
-                    );
-
-                    cache.put(finished, result);
-
-                    if (result.firstName != null &&
-                        result.firstPos != null) {
-                        sendFeedback(
-                            result.firstName,
-                            result.firstPos
-                        );
-                    }
-                } else {
-                    cache.put(
-                        finished,
-                        new ChunkResult(
-                            currentScan.score,
-                            null,
-                            null
-                        )
-                    );
+                if (detection != null && !detection.found.isEmpty()) {
+                    cache.put(task.chunk, detection);
+                    sendFeedback(detection);
                 }
 
-                currentScan = null;
+                scanQueue.poll();
             }
+        }
+    }
+
+    private void checkBlock(ScanTask task, BlockPos pos) {
+        BlockState state = mc.level.getBlockState(pos);
+
+        if (amethyst.get() && state.is(Blocks.AMETHYST_CLUSTER)) {
+            task.add("Amethyst", pos);
+        }
+
+        // Bee Nest: nhận Honey Level từ 1 đến 5.
+        if (beeNest.get()
+            && state.is(Blocks.BEE_NEST)
+            && state.getValue(BeehiveBlock.HONEY_LEVEL) >= 1
+            && state.getValue(BeehiveBlock.HONEY_LEVEL) <= 5) {
+            task.add("Bee Nest", pos);
+        }
+
+        if (kelp.get()
+            && state.is(Blocks.KELP)
+            && state.getValue(KelpBlock.AGE) >= 25) {
+            task.add("Kelp", pos);
+        }
+
+        if (vine.get() && state.is(Blocks.VINE) && isLongVine(pos)) {
+            task.add("Vine", pos);
+        }
+
+        if (storage.get() && isStorage(state)) {
+            task.add("Storage", pos);
+        }
+    }
+
+    private boolean isLongVine(BlockPos pos) {
+        int length = 1;
+
+        for (int i = 1; i <= 2; i++) {
+            if (mc.level.getBlockState(pos.above(i)).is(Blocks.VINE)) {
+                length++;
+            } else {
+                break;
+            }
+        }
+
+        if (length >= 3) return true;
+
+        length = 1;
+
+        for (int i = 1; i <= 2; i++) {
+            if (mc.level.getBlockState(pos.below(i)).is(Blocks.VINE)) {
+                length++;
+            } else {
+                break;
+            }
+        }
+
+        return length >= 3;
+    }
+
+    private boolean isStorage(BlockState state) {
+        return state.is(Blocks.CHEST)
+            || state.is(Blocks.TRAPPED_CHEST)
+            || state.is(Blocks.BARREL)
+            || state.is(Blocks.ENDER_CHEST)
+            || state.getBlock() instanceof ShulkerBoxBlock;
+    }
+
+    private void sendFeedback(Detection detection) {
+        if (!chatFeedback.get()) return;
+
+        for (Found found : detection.found) {
+            info("Phát hiện: " + found.name
+                + " | X: " + found.pos.getX()
+                + " Y: " + found.pos.getY()
+                + " Z: " + found.pos.getZ());
         }
     }
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        if (mc.level == null || mc.player == null) return;
+        if (mc.player == null || mc.level == null) return;
 
         SettingColor base = color.get();
 
-        SettingColor c = new SettingColor(
-            base.r,
-            base.g,
-            base.b,
-            opacity.get()
+        SettingColor side = new SettingColor(
+            base.r, base.g, base.b, opacity.get()
         );
 
-        SettingColor tracerColor = new SettingColor(
-            base.r,
-            base.g,
-            base.b,
-            255
+        SettingColor line = new SettingColor(
+            base.r, base.g, base.b, base.a
         );
 
-        double y = showChunkHeight.get() + 0.02;
+        for (Map.Entry<ChunkPos, Detection> entry : cache.entrySet()) {
+            ChunkPos chunk = entry.getKey();
 
-        for (Map.Entry<ChunkPos, ChunkResult> entry : cache.entrySet()) {
-            ChunkPos pos = entry.getKey();
-            ChunkResult result = entry.getValue();
+            if (!isChunkLoaded(chunk)) continue;
 
-            if (result == null || result.firstPos == null) continue;
-            if (result.score < sensitivity.get()) continue;
-            if (!mc.level.hasChunk(pos.x, pos.z)) continue;
-
-            double x1 = pos.getMinBlockX();
-            double z1 = pos.getMinBlockZ();
-
-            double x2 = x1 + 16;
-            double z2 = z1 + 16;
+            int x = chunk.getMinBlockX();
+            int z = chunk.getMinBlockZ();
+            int y = showChunkHeight.get();
 
             if (showChunk.get()) {
                 event.renderer.box(
-                    x1, y, z1,
-                    x2, y + 0.02, z2,
-                    c, c,
-                    ShapeMode.Lines,
-                    0
+                    x, y, z,
+                    x + 16, y + 0.02, z + 16,
+                    side, line, shapeMode.get(), 0
                 );
             }
 
@@ -501,46 +375,85 @@ public class SusChunkFinder extends Module {
                     RenderUtils.center.x,
                     RenderUtils.center.y,
                     RenderUtils.center.z,
-                    x1 + 8,
+                    x + 8,
                     y,
-                    z1 + 8,
-                    tracerColor
+                    z + 8,
+                    line
                 );
             }
         }
     }
 
-    private static class ChunkScan {
-        private final int x;
-        private final int z;
-
+    private static class ScanTask {
+        private final ChunkPos chunk;
+        private final int minY;
+        private final int maxY;
         private int index;
-        private int score;
 
-        private String firstName;
-        private BlockPos firstPos;
+        private final Map<String, Integer> counts = new LinkedHashMap<>();
+        private final Map<String, BlockPos> positions = new LinkedHashMap<>();
 
-        private LevelChunk chunk;
+        private ScanTask(ChunkPos chunk) {
+            this.chunk = chunk;
+            this.minY = -64;
+            this.maxY = 320;
+        }
 
-        private ChunkScan(int x, int z) {
-            this.x = x;
-            this.z = z;
+        private boolean finished() {
+            return index >= 16 * 16 * (maxY - minY);
+        }
+
+        private BlockPos nextPosition() {
+            if (finished()) return null;
+
+            int height = maxY - minY;
+            int yIndex = index % height;
+            int column = index / height;
+
+            int localX = column % 16;
+            int localZ = column / 16;
+
+            index++;
+
+            return new BlockPos(
+                chunk.getMinBlockX() + localX,
+                minY + yIndex,
+                chunk.getMinBlockZ() + localZ
+            );
+        }
+
+        private void add(String name, BlockPos pos) {
+            counts.put(name, counts.getOrDefault(name, 0) + 1);
+            positions.putIfAbsent(name, pos.immutable());
+        }
+
+        private Detection finish(int sensitivity) {
+            Detection detection = new Detection();
+
+            for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+                if (entry.getValue() >= sensitivity) {
+                    detection.found.add(
+                        new Found(entry.getKey(), positions.get(entry.getKey()))
+                    );
+                }
+            }
+
+            return detection.found.isEmpty() ? null : detection;
         }
     }
 
-    private static class ChunkResult {
-        private final int score;
-        private final String firstName;
-        private final BlockPos firstPos;
+    private static class Detection {
+        private final List<Found> found = new ArrayList<>();
+    }
 
-        private ChunkResult(
-            int score,
-            String firstName,
-            BlockPos firstPos
-        ) {
-            this.score = score;
-            this.firstName = firstName;
-            this.firstPos = firstPos;
+    private static class Found {
+        private final String name;
+        private final BlockPos pos;
+
+        private Found(String name, BlockPos pos) {
+            this.name = name;
+            this.pos = pos;
         }
     }
-}
+                }
+                      
