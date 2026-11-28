@@ -1,5 +1,5 @@
 [versions]
-mod-version = "0.1.4beta"
+mod-version = "0.1.4betafixdelay"
 
 # Fabric (https://fabricmc.net/develop)
 jdk = "21"
