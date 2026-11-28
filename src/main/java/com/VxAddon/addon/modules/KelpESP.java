@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.orbit.EventHandler;
 
 import net.minecraft.core.BlockPos;
@@ -18,7 +19,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.KelpBlock;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
@@ -75,7 +75,7 @@ public class KelpESP extends Module {
     private final Setting<Boolean> tracers = sgRender.add(
         new BoolSetting.Builder()
             .name("tracers")
-            .defaultValue(false)
+            .defaultValue(true)
             .build()
     );
 
@@ -106,21 +106,13 @@ public class KelpESP extends Module {
 
     private static final int BLOCKS_PER_BATCH = 4096;
 
-    // Cache kết quả, giữ lại khi tắt/bật module.
     private final Map<ChunkPos, ChunkResult> cache = new HashMap<>();
-
-    // Những chunk đã quét xong.
     private final Set<ChunkPos> scannedChunks = new HashSet<>();
-
-    // Những chunk đang chờ quét.
     private final Set<ChunkPos> queuedChunks = new HashSet<>();
-
     private final Queue<ChunkPos> scanQueue = new ArrayDeque<>();
 
     private ChunkScan currentScan;
-
     private ChunkPos lastPlayerChunk;
-
     private ClientLevel cachedLevel;
 
     private int tickCounter;
@@ -198,7 +190,6 @@ public class KelpESP extends Module {
     private void onTick(TickEvent.Post event) {
         if (mc.level == null || mc.player == null) return;
 
-        // Chuyển thế giới thì xóa cache cũ.
         if (cachedLevel != mc.level) {
             cachedLevel = (ClientLevel) mc.level;
             clearCache();
@@ -206,7 +197,6 @@ public class KelpESP extends Module {
 
         ChunkPos playerChunk = mc.player.chunkPosition();
 
-        // Chỉ thêm chunk khi người chơi bước vào chunk mới.
         if (lastPlayerChunk == null ||
             !lastPlayerChunk.equals(playerChunk)) {
 
@@ -248,7 +238,6 @@ public class KelpESP extends Module {
 
             var state = currentScan.chunk.getBlockState(pos);
 
-            // Chỉ đếm kelp trưởng thành.
             if (state.is(Blocks.KELP) &&
                 state.getValue(KelpBlock.AGE) >= 25) {
 
@@ -318,9 +307,12 @@ public class KelpESP extends Module {
             opacity.get()
         );
 
-        Vec3 cameraPos = mc.gameRenderer
-            .getMainCamera()
-            .getPosition();
+        SettingColor tracerColor = new SettingColor(
+            base.r,
+            base.g,
+            base.b,
+            255
+        );
 
         for (Map.Entry<ChunkPos, ChunkResult> entry :
             cache.entrySet()) {
@@ -334,7 +326,6 @@ public class KelpESP extends Module {
             if (result.count < minKelp.get() ||
                 result.count > maxKelp.get()) continue;
 
-            // Không hiển thị chunk đã unload.
             if (!mc.level.hasChunk(chunk.x, chunk.z)) continue;
 
             double x1 = chunk.getMinBlockX();
@@ -343,7 +334,6 @@ public class KelpESP extends Module {
             double x2 = x1 + 16;
             double z2 = z1 + 16;
 
-            // Mặt phẳng ngang tại độ cao kelp tìm thấy.
             double y = result.firstKelpPos.getY() + 0.02;
 
             if (showChunk.get()) {
@@ -358,13 +348,13 @@ public class KelpESP extends Module {
 
             if (tracers.get()) {
                 event.renderer.line(
-                    cameraPos.x,
-                    cameraPos.y,
-                    cameraPos.z,
+                    RenderUtils.center.x,
+                    RenderUtils.center.y,
+                    RenderUtils.center.z,
                     x1 + 8,
                     y,
                     z1 + 8,
-                    c
+                    tracerColor
                 );
             }
         }
@@ -404,4 +394,4 @@ public class KelpESP extends Module {
             this.firstKelpPos = firstKelpPos;
         }
     }
-        }
+    }
